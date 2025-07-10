@@ -4,17 +4,17 @@ Este repositorio contiene los contratos inteligentes del proyecto Agora Market.
 
 ## Estructura del Proyecto
 
+```
 agoramarket/market
-|
-|__.gitignore
-|__LICENSE
-|__README.md
-|__contracts
-    |
-    |__market
-        |__Cargo.toml
-        |__Cargo.lock
-        |__lib.rs
+├── .gitignore
+├── LICENSE
+├── README.md
+└── contracts
+    └── market
+        ├── Cargo.toml
+        ├── Cargo.lock
+        └── lib.rs
+```
 
 ## Instalación
 
