@@ -1,13 +1,11 @@
 [package]
 name = "market"
 version = "0.1.0"
-authors = ["The Agora Developers"]
+authors =["The Agora Developers"]
 edition = "2021"
 
 [dependencies]
 ink = { version = "5.0", default-features = false }
-parity-scale-codec = { version = "3.6", default-features = false }
-scale-info = { version = "2.10", default-features = false, features = ["derive"] }
 
 [dev-dependencies]
 ink_e2e = { version = "5.0" }
@@ -19,8 +17,6 @@ path = "lib.rs"
 default = ["std"]
 std = [
     "ink/std",
-    "parity-scale-codec/std",
-    "scale-info/std"
 ]
 ink-as-dependency = []
 e2e-tests = []
