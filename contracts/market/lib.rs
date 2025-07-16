@@ -200,4 +200,165 @@ mod marketplace {
             }
         }
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use ink::env::test;
+
+        fn default_accounts() -> test::DefaultAccounts<ink::env::DefaultEnvironment> {
+            test::default_accounts::<ink::env::DefaultEnvironment>()
+        }
+
+        fn set_caller(caller: AccountId) {
+            test::set_caller::<ink::env::DefaultEnvironment>(caller);
+        }
+
+        #[ink::test]
+        fn test_flujo_completo_marketplace() {
+            let accounts = default_accounts();
+            let mut marketplace = Marketplace::new();
+            
+            // Test 1: Registro de vendedor
+            set_caller(accounts.alice);
+            assert_eq!(marketplace.registrar(Rol::Vendedor), Ok(()));
+            assert_eq!(marketplace.get_rol(accounts.alice), Some(Rol::Vendedor));
+            
+            // Test error: ya registrado
+            assert_eq!(marketplace.registrar(Rol::Comprador), Err(Error::YaRegistrado));
+            
+            // Test 2: Registro de comprador
+            set_caller(accounts.bob);
+            assert_eq!(marketplace.registrar(Rol::Comprador), Ok(()));
+            assert_eq!(marketplace.get_rol(accounts.bob), Some(Rol::Comprador));
+            
+            // Test 3: Publicar producto por vendedor
+            set_caller(accounts.alice);
+            let producto_id = marketplace.publicar("Laptop".to_string(), 1000, 5).unwrap();
+            assert_eq!(producto_id, 1);
+            
+            let producto = marketplace.get_producto(1).unwrap();
+            assert_eq!(producto.0, accounts.alice);
+            assert_eq!(producto.1, "Laptop");
+            assert_eq!(producto.2, 1000);
+            assert_eq!(producto.3, 5);
+            
+            // Test error: comprador intenta publicar
+            set_caller(accounts.bob);
+            assert_eq!(marketplace.publicar("Item".to_string(), 100, 1), Err(Error::SinPermiso));
+            
+            // Test 4: Comprar producto
+            let orden_id = marketplace.comprar(1, 2).unwrap();
+            assert_eq!(orden_id, 1);
+            
+            let orden = marketplace.get_orden(1).unwrap();
+            assert_eq!(orden.0, accounts.bob); // comprador
+            assert_eq!(orden.1, accounts.alice); // vendedor
+            assert_eq!(orden.2, 1); // producto_id
+            assert_eq!(orden.3, 2); // cantidad
+            assert_eq!(orden.4, Estado::Pendiente);
+            
+            // Verificar que el stock se redujo
+            let producto_actualizado = marketplace.get_producto(1).unwrap();
+            assert_eq!(producto_actualizado.3, 3); // stock reducido de 5 a 3
+            
+            // Test 5: Marcar como enviado (solo vendedor)
+            set_caller(accounts.alice);
+            assert_eq!(marketplace.marcar_enviado(1), Ok(()));
+            
+            let orden = marketplace.get_orden(1).unwrap();
+            assert_eq!(orden.4, Estado::Enviado);
+            
+            // Test error: comprador intenta marcar como enviado
+            set_caller(accounts.bob);
+            assert_eq!(marketplace.marcar_enviado(1), Err(Error::SinPermiso));
+            
+            // Test 6: Marcar como recibido (solo comprador)
+            assert_eq!(marketplace.marcar_recibido(1), Ok(()));
+            
+            let orden = marketplace.get_orden(1).unwrap();
+            assert_eq!(orden.4, Estado::Recibido);
+        }
+
+        #[ink::test]
+        fn test_errores_y_validaciones() {
+            let accounts = default_accounts();
+            let mut marketplace = Marketplace::new();
+            
+            // Usuario sin registro intenta acciones
+            set_caller(accounts.alice);
+            assert_eq!(marketplace.publicar("Item".to_string(), 100, 1), Err(Error::SinRegistro));
+            assert_eq!(marketplace.comprar(1, 1), Err(Error::SinRegistro));
+            
+            // Registrar vendedor y probar validaciones
+            marketplace.registrar(Rol::Vendedor).unwrap();
+            
+            // Parámetros inválidos en publicar
+            assert_eq!(marketplace.publicar("".to_string(), 0, 1), Err(Error::ParamInvalido));
+            assert_eq!(marketplace.publicar("Item".to_string(), 100, 0), Err(Error::ParamInvalido));
+            assert_eq!(marketplace.publicar("a".repeat(65), 100, 1), Err(Error::ParamInvalido));
+            
+            // Publicar producto válido
+            marketplace.publicar("Producto".to_string(), 100, 2).unwrap();
+            
+            // Registrar comprador
+            set_caller(accounts.bob);
+            marketplace.registrar(Rol::Comprador).unwrap();
+            
+            // Errores en comprar
+            assert_eq!(marketplace.comprar(999, 1), Err(Error::ProdInexistente)); // producto inexistente
+            assert_eq!(marketplace.comprar(1, 0), Err(Error::ParamInvalido)); // cantidad 0
+            assert_eq!(marketplace.comprar(1, 10), Err(Error::StockInsuf)); // stock insuficiente
+            
+            // Compra válida
+            marketplace.comprar(1, 2).unwrap(); // compra todo el stock
+            
+            // Intentar comprar cuando no hay stock
+            assert_eq!(marketplace.comprar(1, 1), Err(Error::StockInsuf));
+            
+            // Errores en órdenes
+            assert_eq!(marketplace.marcar_enviado(999), Err(Error::OrdenInexistente));
+            assert_eq!(marketplace.marcar_recibido(999), Err(Error::OrdenInexistente));
+            
+            // Solo vendedor puede marcar como enviado
+            assert_eq!(marketplace.marcar_enviado(1), Err(Error::SinPermiso));
+            
+            set_caller(accounts.alice);
+            marketplace.marcar_enviado(1).unwrap();
+            
+            // No se puede marcar enviado dos veces
+            assert_eq!(marketplace.marcar_enviado(1), Err(Error::EstadoInvalido));
+            
+            // Solo comprador puede marcar como recibido
+            assert_eq!(marketplace.marcar_recibido(1), Err(Error::SinPermiso));
+        }
+
+        #[ink::test]
+        fn test_roles_y_permisos() {
+            let accounts = default_accounts();
+            let mut marketplace = Marketplace::new();
+            
+            // Registrar usuario con rol "Ambos"
+            set_caller(accounts.alice);
+            marketplace.registrar(Rol::Ambos).unwrap();
+            assert_eq!(marketplace.get_rol(accounts.alice), Some(Rol::Ambos));
+            
+            // Usuario con rol "Ambos" puede publicar
+            let producto_id = marketplace.publicar("Producto".to_string(), 500, 3).unwrap();
+            
+            // Usuario con rol "Ambos" puede comprar
+            let orden_id = marketplace.comprar(producto_id, 1).unwrap();
+            
+            // Puede marcar como enviado (como vendedor)
+            marketplace.marcar_enviado(orden_id).unwrap();
+            
+            // Puede marcar como recibido (como comprador)
+            marketplace.marcar_recibido(orden_id).unwrap();
+            
+            // Test métodos de consulta
+            assert!(marketplace.get_producto(999).is_none());
+            assert!(marketplace.get_orden(999).is_none());
+            assert!(marketplace.get_rol(accounts.bob).is_none());
+        }
+    }
 }
