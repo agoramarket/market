@@ -305,9 +305,11 @@ mod marketplace {
             self.ordenes.get(id)
         }
 
+        // A partir de acá están las funciones internas que implementan la lógica del contrato.
+
         /// Lógica interna para registrar un usuario.
         fn _registrar(&mut self, caller: AccountId, rol: Rol) -> Result<(), Error> {
-            // Asegura que el usuario (caller) no esté ya registrado. Si lo está, devuelve `Error::YaRegistrado`.
+            // Asegura que el usuario (caller) no esté ya registrado con un rol. Si ya está registrado, devuelve `Error::YaRegistrado`.
             self.ensure(!self.roles.contains(caller), Error::YaRegistrado)?;
             // Inserta el nuevo rol para el usuario en el mapping `roles`.
             self.roles.insert(caller, &rol);
@@ -336,6 +338,8 @@ mod marketplace {
             // Obtiene el ID para el nuevo producto.
             let pid = self.next_prod_id;
             // Incrementa el contador para el próximo ID de producto, manejando un posible desbordamiento.
+            // En un inicio fué implementado con saturating_add, pero luego refactoricé porque S_A "silencia" el error de desbordamiento y "congela" _next_prod_id_ en u32::MAX.
+            // En ese escenario hipotético, el contrato crearía productos con el mismo ID.
             self.next_prod_id = self.next_prod_id.checked_add(1).ok_or(Error::IdOverflow)?;
 
             // Crea una nueva instancia de `Producto` con los datos proporcionados.
@@ -431,7 +435,8 @@ mod marketplace {
             Ok(())
         }
 
-        /// Función de utilidad para verificar una condición y devolver un error si es falsa.
+        /// Helper para validar condiciones.
+        // Existe más que nada para hacer que la lógica de validación sea más legible y fachera.
         fn ensure(&self, cond: bool, err: Error) -> Result<(), Error> {
             // Si la condición es verdadera, devuelve `Ok`.
             if cond {
@@ -442,10 +447,211 @@ mod marketplace {
             }
         }
 
-        /// Función de utilidad para obtener el rol de un usuario o devolver `Error::SinRegistro`.
+        /// Helper que retorna rol.
         fn rol_de(&self, quien: AccountId) -> Result<Rol, Error> {
             // Intenta obtener el rol del usuario. Si no existe, devuelve `Error::SinRegistro`.
             self.roles.get(quien).ok_or(Error::SinRegistro)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use ink::env::{test, DefaultEnvironment};
+
+        // --- HELPERS ---
+        fn set_next_caller(caller: AccountId) {
+            test::set_caller::<DefaultEnvironment>(caller);
+        }
+
+        fn get_accounts() -> test::DefaultAccounts<DefaultEnvironment> {
+            test::default_accounts::<DefaultEnvironment>()
+        }
+
+        /// Test para el flujo completo y casos de éxito.
+        /// 1. Registra un comprador y un vendedor.
+        /// 2. El vendedor publica un producto.
+        /// 3. El comprador adquiere el producto, creando una orden.
+        /// 4. El vendedor marca la orden como enviada.
+        /// 5. El comprador marca la orden como recibida.
+        #[ink::test]
+        fn test_flujo_completo_exitoso() {
+            let accounts = get_accounts();
+            let (vendedor_acc, comprador_acc) = (accounts.alice, accounts.bob);
+            let mut mp = Marketplace::new();
+
+            // 1. Registro
+            set_next_caller(vendedor_acc);
+            assert_eq!(mp.registrar(Rol::Vendedor), Ok(()));
+            assert_eq!(mp.obtener_rol(vendedor_acc), Some(Rol::Vendedor));
+
+            set_next_caller(comprador_acc);
+            assert_eq!(mp.registrar(Rol::Comprador), Ok(()));
+            assert_eq!(mp.obtener_rol(comprador_acc), Some(Rol::Comprador));
+
+            // 2. Publicación de producto
+            set_next_caller(vendedor_acc);
+            let res_pub = mp.publicar("Test Product".to_string(), 100, 10);
+            assert_eq!(res_pub, Ok(1));
+            let pid = res_pub.unwrap();
+            let prod = mp.obtener_producto(pid).unwrap();
+            assert_eq!(prod.vendedor, vendedor_acc);
+            assert_eq!(prod.stock, 10);
+
+            // 3. Compra
+            set_next_caller(comprador_acc);
+            let res_compra = mp.comprar(pid, 5);
+            assert_eq!(res_compra, Ok(1));
+            let oid = res_compra.unwrap();
+            let prod_actualizado = mp.obtener_producto(pid).unwrap();
+            assert_eq!(prod_actualizado.stock, 5); // Verifica reducción de stock
+
+            let orden = mp.obtener_orden(oid).unwrap();
+            assert_eq!(orden.comprador, comprador_acc);
+            assert_eq!(orden.vendedor, vendedor_acc);
+            assert_eq!(orden.estado, Estado::Pendiente);
+
+            // 4. Marcar como enviado
+            set_next_caller(vendedor_acc);
+            assert_eq!(mp.marcar_enviado(oid), Ok(()));
+            assert_eq!(mp.obtener_orden(oid).unwrap().estado, Estado::Enviado);
+
+            // 5. Marcar como recibido
+            set_next_caller(comprador_acc);
+            assert_eq!(mp.marcar_recibido(oid), Ok(()));
+            assert_eq!(mp.obtener_orden(oid).unwrap().estado, Estado::Recibido);
+        }
+
+        /// Test para verificar los errores de permisos y de parámetros inválidos.
+        /// - Intenta registrar un usuario ya registrado.
+        /// - Intenta publicar/comprar sin el rol adecuado o sin registro.
+        /// - Intenta publicar con parámetros inválidos.
+        /// - Intenta comprar más stock del disponible o un producto inexistente.
+        #[ink::test]
+        fn test_errores_permisos_y_parametros() {
+            let accounts = get_accounts();
+            let (vendedor_acc, comprador_acc, sin_rol_acc) =
+                (accounts.alice, accounts.bob, accounts.charlie);
+            let mut mp = Marketplace::new();
+
+            // Registro
+            set_next_caller(vendedor_acc);
+            mp.registrar(Rol::Vendedor).unwrap();
+            assert_eq!(mp.registrar(Rol::Vendedor), Err(Error::YaRegistrado));
+
+            set_next_caller(comprador_acc);
+            mp.registrar(Rol::Comprador).unwrap();
+
+            // Errores de publicación
+            set_next_caller(comprador_acc); // Un comprador no puede publicar
+            assert_eq!(
+                mp.publicar("Fail".to_string(), 1, 1),
+                Err(Error::SinPermiso)
+            );
+            set_next_caller(sin_rol_acc); // Un usuario sin rol no puede publicar
+            assert_eq!(
+                mp.publicar("Fail".to_string(), 1, 1),
+                Err(Error::SinRegistro)
+            );
+            set_next_caller(vendedor_acc); // Vendedor con parámetros inválidos
+            assert_eq!(
+                mp.publicar("Fail".to_string(), 0, 1),
+                Err(Error::ParamInvalido)
+            ); // Precio 0
+            assert_eq!(
+                mp.publicar("Fail".to_string(), 1, 0),
+                Err(Error::ParamInvalido)
+            ); // Stock 0
+
+            // Publicación válida para pruebas de compra
+            let pid = mp.publicar("Test".to_string(), 10, 5).unwrap();
+
+            // Errores de compra
+            set_next_caller(vendedor_acc); // Un vendedor no puede comprar
+            assert_eq!(mp.comprar(pid, 1), Err(Error::SinPermiso));
+            set_next_caller(sin_rol_acc); // Sin rol no puede comprar
+            assert_eq!(mp.comprar(pid, 1), Err(Error::SinRegistro));
+            set_next_caller(comprador_acc); // Comprador con parámetros/estado inválido
+            assert_eq!(mp.comprar(99, 1), Err(Error::ProdInexistente)); // Producto no existe
+            assert_eq!(mp.comprar(pid, 0), Err(Error::ParamInvalido)); // Cantidad 0
+            assert_eq!(mp.comprar(pid, 10), Err(Error::StockInsuf)); // Stock insuficiente
+        }
+
+        /// Test para verificar la lógica de cambio de estado de las órdenes.
+        /// - Intenta marcar una orden como enviada/recibida por la persona incorrecta.
+        /// - Intenta cambiar el estado de una orden en un orden incorrecto (e.g., Recibido antes de Enviado).
+        #[ink::test]
+        fn test_errores_flujo_de_orden() {
+            let accounts = get_accounts();
+            let (vendedor_acc, comprador_acc, otro_acc) =
+                (accounts.alice, accounts.bob, accounts.charlie);
+            let mut mp = Marketplace::new();
+
+            // Setup: Vendedor, Comprador, Producto, Orden
+            set_next_caller(vendedor_acc);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), 10, 5).unwrap();
+            set_next_caller(comprador_acc);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 2).unwrap();
+
+            // Errores al marcar como enviado
+            set_next_caller(comprador_acc); // Comprador no puede marcar enviado
+            assert_eq!(mp.marcar_enviado(oid), Err(Error::SinPermiso));
+            set_next_caller(otro_acc); // Otro usuario no puede
+            assert_eq!(mp.marcar_enviado(oid), Err(Error::SinPermiso));
+            set_next_caller(vendedor_acc); // El vendedor correcto, pero con un ID de orden inexistente
+            assert_eq!(mp.marcar_enviado(99), Err(Error::OrdenInexistente));
+
+            // Errores al marcar como recibido
+            set_next_caller(vendedor_acc); // Vendedor no puede marcar recibido
+            assert_eq!(mp.marcar_recibido(oid), Err(Error::SinPermiso));
+            // No se puede marcar recibido si no está enviado
+            set_next_caller(comprador_acc);
+            assert_eq!(mp.marcar_recibido(oid), Err(Error::EstadoInvalido));
+
+            // Flujo correcto para probar más errores
+            set_next_caller(vendedor_acc);
+            mp.marcar_enviado(oid).unwrap(); // Ahora está Enviado
+
+            // No se puede marcar enviado de nuevo
+            assert_eq!(mp.marcar_enviado(oid), Err(Error::EstadoInvalido));
+
+            set_next_caller(comprador_acc);
+            mp.marcar_recibido(oid).unwrap(); // Ahora está Recibido
+
+            // No se puede marcar recibido de nuevo
+            assert_eq!(mp.marcar_recibido(oid), Err(Error::EstadoInvalido));
+        }
+
+        /// Test para el manejo de desbordamiento de IDs.
+        /// Se simula un estado donde los contadores de IDs están al máximo valor de u32
+        /// y se verifica que el contrato devuelva `Error::IdOverflow`.
+        #[ink::test]
+        fn test_overflow_ids() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+
+            // Simula overflow de ID de producto
+            mp.next_prod_id = u32::MAX;
+            assert_eq!(
+                mp.publicar("Overflow Prod".to_string(), 1, 1),
+                Err(Error::IdOverflow)
+            );
+
+            // Resetea para probar overflow de orden
+            mp.next_prod_id = 1;
+            let pid = mp.publicar("Test Prod".to_string(), 1, 1).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+
+            // Simula overflow de ID de orden
+            mp.next_order_id = u32::MAX;
+            assert_eq!(mp.comprar(pid, 1), Err(Error::IdOverflow));
         }
     }
 }
