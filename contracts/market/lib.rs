@@ -1,6 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 
-/// Ágora Marketplace - 1° Entrega, 18 de julio de 2025.
+/// Ágora Marketplace - MVP, julio de 2025.
+///
+/// Contrato market - Lógica de compras y ventas en un marketplace descentralizado.
 ///
 /// Este contrato permite a los usuarios registrarse como compradores, vendedores o ambos.
 /// Los vendedores pueden publicar productos, y los compradores pueden comprar esos productos,
