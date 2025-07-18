@@ -77,7 +77,7 @@ cargo test
 ### Resultados
 
 * ✅ 4 tests ejecutados exitosamente
-* 📈 **Cobertura de código: 97.44%** (76/78 líneas)
+* 📈 **Cobertura de código: 97.44%** (76/78 líneas, tarpaulin)
 
 ---
 
@@ -107,20 +107,23 @@ cargo test
 
 * Red: **Astar Shibuya Testnet**
 * Dirección del contrato:
-  `xxx`
+  `XDHDTFonKyVQnTZaB9TpMcfTKWkuuL9TaDR4mBz5ebVWnYV`
 
 ### Cómo Probar
 
-1. Instala la extensión [Polkadot.js](https://polkadot.js.org/extension/)
-2. Solicita fondos en el [faucet oficial de Shibuya](https://portal.astar.network/shibuya-testnet/assets)
-3. Accede a [https://ui.use.ink](https://ui.use.ink) y carga el contrato usando la dirección on-chain
+1. Sigue los pasos para compilar el contrato y obtener los archivos del contrato, entre los cuales está `market.json`, que es la metadata del contrato.
+2. Instala la extensión [Polkadot.js](https://polkadot.js.org/extension/)
+3. Solicita fondos en el [faucet oficial de Shibuya](https://portal.astar.network/shibuya-testnet/assets)
+4. Accede a [https://ui.use.ink](https://ui.use.ink) y carga el contrato usando la dirección on-chain y el `market.json` que compilaste como metadata.
+5. Divertite!
+
 
 ---
 
 ## 📌 Próximas Etapas (Entrega Final)
 
 * Reputación bidireccional (`Comprador` ↔ `Vendedor`)
-* Contrato de reportes (`ReportesView`)
+* Contrato de reportes (`Reportes`)
 
   * Top usuarios, productos más vendidos, estadísticas por categoría
 * Disputas y simulación de pagos (bonus)
