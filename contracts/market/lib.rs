@@ -1,6 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 
-/// Ágora Marketplace
+/// Ágora Marketplace - MVP, julio de 2025.
 ///
 /// Contrato market - Lógica de compras y ventas en un marketplace descentralizado.
 ///
@@ -10,6 +10,7 @@
 #[ink::contract]
 mod marketplace {
     use ink::prelude::string::String;
+    use ink::prelude::vec::Vec;
     use ink::storage::Mapping;
     use scale::{Decode, Encode};
 
@@ -66,8 +67,6 @@ mod marketplace {
         pub vendedor: AccountId,
         /// El nombre del producto.
         pub nombre: String,
-        /// Una descripción detallada del producto.
-        pub descripcion: String,
         /// El precio del producto.
         pub precio: Balance,
         /// La cantidad de unidades disponibles del producto.
@@ -194,8 +193,7 @@ mod marketplace {
         /// * `nombre` - El nombre del producto (máximo 64 caracteres).
         /// * `precio` - El precio del producto (debe ser mayor que 0).
         /// * `stock` - La cantidad de unidades disponibles (debe ser mayor que 0).
-        /// * `descripcion` - Una descripción detallada del producto (máximo 256 caracteres).
-        /// * `categoria` - La categoría a la que pertenece el producto.
+        ///
         /// # Errores
         ///
         /// - `Error::SinPermiso` si el llamante no es un vendedor.
@@ -209,13 +207,11 @@ mod marketplace {
         pub fn publicar(
             &mut self,
             nombre: String,
-            descripcion: String,
             precio: Balance,
             stock: u32,
-            categoria: String,
         ) -> Result<u32, Error> {
             let vendedor = self.env().caller();
-            self._publicar(vendedor, nombre, descripcion, precio, stock, categoria)
+            self._publicar(vendedor, nombre, precio, stock)
         }
 
         /// Obtiene la información de un producto por su ID.
@@ -257,25 +253,6 @@ mod marketplace {
             let comprador = self.env().caller();
             self._comprar(comprador, id_prod, cant)
         }
-
-    /// Modifica el rol de un usuario ya registrado.
-    ///
-    /// # Argumentos
-    ///
-    /// * `nuevo_rol` - El nuevo `Rol` a asignar al llamante.
-    ///
-    /// # Errores
-    ///
-    /// Devuelve `Error::SinRegistro` si el llamante no está registrado previamente.
-    #[ink(message)]
-    pub fn modificar_rol(&mut self, nuevo_rol: Rol) -> Result<(), Error> {
-        let caller = self.env().caller();
-        // Verificamos que el usuario YA esté registrado
-        self.ensure(self.roles.contains(caller), Error::SinRegistro)?;
-        // Actualizamos su rol
-        self.roles.insert(caller, &nuevo_rol);
-        Ok(())
-    }
 
         /// Marca una orden como enviada.
         ///
@@ -331,6 +308,46 @@ mod marketplace {
             self.ordenes.get(id)
         }
 
+        #[ink(message)]
+        pub fn listar_productos_de_vendedor(&self, vendedor: AccountId) -> Vec<Producto> {
+            self._listar_productos_de_vendedor(vendedor)
+        }
+
+        fn _listar_productos_de_vendedor(&self, vendedor: AccountId) -> Vec<Producto> {
+            // Implementación pendiente
+            let mut productos_vendedor = Vec::new();
+
+            for pid in 1..self.next_prod_id {
+                if let Some(producto) = self.productos.get(pid) {
+                    if producto.vendedor == vendedor {
+                        productos_vendedor.push(producto);
+                    }
+                }
+            }
+            
+            productos_vendedor
+        }
+
+        #[ink(message)]
+        pub fn listar_ordenes_de_comprador(&self, comprador: AccountId) -> Vec<Orden> {
+            self._listar_ordenes_de_comprador(comprador)
+        }
+        
+        fn _listar_ordenes_de_comprador(&self, comprador: AccountId) -> Vec<Orden> {
+            // Implementación pendiente
+            let mut ordenes_comprador = Vec::new();
+
+            for oid in 1..self.next_order_id {
+                if let Some(orden) = self.ordenes.get(oid) {
+                    if orden.comprador == comprador {
+                        ordenes_comprador.push(orden);
+                    }
+                }
+            }
+            
+            ordenes_comprador
+        }
+
         // A partir de acá están las funciones internas que implementan la lógica del contrato.
 
         /// Lógica interna para registrar un usuario.
@@ -348,25 +365,16 @@ mod marketplace {
             &mut self,
             vendedor: AccountId,
             nombre: String,
-            descripcion: String,
             precio: Balance,
             stock: u32,
-            categoria: String,
         ) -> Result<u32, Error> {
             // Obtiene el rol del vendedor. Devuelve `Error::SinRegistro` si no está registrado.
             let rol_vendedor = self.rol_de(vendedor)?;
             // Asegura que el usuario tenga permisos de vendedor. Si no, devuelve `Error::SinPermiso`.
-            self.ensure(rol_vendedor.es_vendedor(), Error::SinPermiso);
+            self.ensure(rol_vendedor.es_vendedor(), Error::SinPermiso)?;
             // Valida los parámetros del producto. Si son inválidos, devuelve `Error::ParamInvalido`.
             self.ensure(
-                precio > 0 
-                && stock > 0 
-                && !nombre.is_empty()
-                && nombre.len() <= 64
-                && !descripcion.is_empty()
-                && descripcion.len() <= 256
-                && !categoria.is_empty()
-                && categoria.len() <= 32,
+                precio > 0 && stock > 0 && nombre.len() <= 64,
                 Error::ParamInvalido,
             )?;
 
@@ -381,14 +389,13 @@ mod marketplace {
             let producto = Producto {
                 vendedor,
                 nombre,
-                descripcion,
                 precio,
                 stock,
-                categoria,
             };
+
             // Inserta el nuevo producto en el mapping `productos`.
             self.productos.insert(pid, &producto);
-            // Devuelve el ID del producto recién creado.1
+            // Devuelve el ID del producto recién creado.
             Ok(pid)
         }
 
