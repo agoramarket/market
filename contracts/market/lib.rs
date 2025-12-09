@@ -466,6 +466,7 @@ mod marketplace {
             self.ensure(cant > 0, Error::ParamInvalido)?;
 
             let mut producto = self.productos.get(id_prod).ok_or(Error::ProdInexistente)?;
+            self.ensure(producto.vendedor != comprador, Error::SinPermiso)?;
             self.ensure(producto.stock >= cant, Error::StockInsuf)?;
 
             producto.stock = producto.stock.checked_sub(cant).ok_or(Error::StockInsuf)?;
@@ -1149,7 +1150,7 @@ mod marketplace {
 
         // ===== TESTS DE ROL AMBOS =====
 
-        /// Test: Usuario con rol Ambos puede comprar y vender.
+        /// Test: Usuario con rol Ambos puede comprar productos de otros vendedores.
         #[ink::test]
         fn rol_ambos_puede_comprar_y_vender() {
             let accounts = get_accounts();
@@ -1157,15 +1158,38 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Ambos).unwrap();
+            let _pid_alice = mp.publicar("Test Alice".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
 
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
-            assert_eq!(pid, 1);
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Ambos).unwrap();
+            let pid_bob = mp.publicar("Test Bob".to_string(), "Desc".to_string(), 50, 5, "Cat".to_string()).unwrap();
 
-            let oid = mp.comprar(pid, 2).unwrap();
+            // Alice compra el producto de Bob
+            set_next_caller(accounts.alice);
+            let oid = mp.comprar(pid_bob, 2).unwrap();
             assert_eq!(oid, 1);
 
+            let producto = mp.obtener_producto(pid_bob).unwrap();
+            assert_eq!(producto.stock, 3);
+        }
+
+        /// Test: Error al intentar comprar el propio producto (autocompra).
+        #[ink::test]
+        fn autocompra_bloqueada() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Ambos).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            // Alice intenta comprar su propio producto
+            let resultado = mp.comprar(pid, 2);
+            assert_eq!(resultado, Err(Error::SinPermiso));
+
+            // Verificar que el stock no cambió
             let producto = mp.obtener_producto(pid).unwrap();
-            assert_eq!(producto.stock, 8);
+            assert_eq!(producto.stock, 10);
         }
     }
 }
