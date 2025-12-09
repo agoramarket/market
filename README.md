@@ -103,7 +103,7 @@ cargo test
 ### Funciones de Comprador
 
 * `comprar(producto_id, cantidad)` - Crea una orden de compra
-* `listar_ordenes_de_comprador(comprador)` - Lista todas las órdenes de un comprador
+* `listar_ordenes_de_comprador()` - Lista todas las órdenes propias (privacidad protegida)
 * `marcar_recibido(orden_id)` - Confirma la recepción de una orden
 
 ### Consultas Generales

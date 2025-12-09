@@ -214,16 +214,22 @@ let orden = marketplace.obtener_orden(1);
 // orden -> Some(Orden { comprador: bob_account_id, vendedor: alice_account_id, id_prod: 1, cantidad: 2, estado: Estado::Pendiente })
 ```
 
-### `listar_ordenes_de_comprador(comprador: AccountId)`
-Lista todas las órdenes realizadas por un comprador específico.
-- **Argumentos**:
-  - `comprador: AccountId`: La cuenta del comprador.
-- **Retorno**: `Vec<Orden>` con todas las órdenes del comprador (vacío si no tiene órdenes).
+### `listar_ordenes_de_comprador()`
+Lista todas las órdenes realizadas por el usuario que llama esta función.
+
+**Razón de privacidad**: Por seguridad y privacidad, un comprador solo puede ver sus propias órdenes. No existe una función pública que permita listar las órdenes de otros usuarios, ya que el historial de compras es información sensible y privada.
+
+- **Permisos**: Cualquier usuario registrado puede llamarla, pero solo verá sus propias órdenes.
+- **Retorno**: `Vec<Orden>` con todas las órdenes del caller (vacío si no tiene órdenes).
 
 **Ejemplo de uso:**
 ```rust
-let ordenes_bob = marketplace.listar_ordenes_de_comprador(bob_account_id);
-// ordenes_bob -> [Orden { ... }, Orden { ... }, ...]
+// Bob (comprador) consulta sus propias órdenes.
+// El contrato automáticamente usa la cuenta de Bob como filtro.
+let mis_ordenes = marketplace.listar_ordenes_de_comprador();
+// mis_ordenes -> [Orden { comprador: bob_account_id, ... }, Orden { comprador: bob_account_id, ... }]
+
+// Si Alice intenta llamar la función, solo verá sus propias órdenes (no las de Bob).
 ```
 
 ### `marcar_enviado(oid: u32)`
@@ -328,9 +334,10 @@ assert_eq!(orden.vendedor, alice);
 assert_eq!(orden.cantidad, 3);
 assert_eq!(orden.estado, Estado::Pendiente);
 
-// Bob puede listar sus órdenes
-let ordenes_bob = marketplace.listar_ordenes_de_comprador(bob);
-assert_eq!(ordenes_bob.len(), 1);
+// Bob puede listar sus propias órdenes (sin necesidad de pasar su AccountId)
+// (Llamado desde la cuenta de Bob)
+let mis_ordenes = marketplace.listar_ordenes_de_comprador();
+assert_eq!(mis_ordenes.len(), 1);
 
 
 // --- PASO 4: El vendedor envía la orden ---

@@ -355,24 +355,23 @@ mod marketplace {
             self._listar_productos_de_vendedor(vendedor)
         }
 
-        /// Lista todas las órdenes realizadas por un comprador específico.
+        /// Lista todas las órdenes realizadas por el usuario que llama esta función.
         ///
-        /// # Argumentos
-        ///
-        /// * `comprador` - La `AccountId` del comprador cuyas órdenes se desean listar.
+        /// Por motivos de seguridad y privacidad, un comprador solo puede ver sus propias órdenes.
         ///
         /// # Retorno
         ///
-        /// Devuelve un `Vec<Orden>` con todas las órdenes del comprador.
-        /// Si el comprador no tiene órdenes, devuelve un vector vacío.
+        /// Devuelve un `Vec<Orden>` con todas las órdenes del caller.
+        /// Si el caller no tiene órdenes, devuelve un vector vacío.
         ///
         /// # Nota
         ///
         /// Esta función itera sobre todos los IDs de órdenes, por lo que su costo
         /// aumenta linealmente con el número total de órdenes en el marketplace.
         #[ink(message)]
-        pub fn listar_ordenes_de_comprador(&self, comprador: AccountId) -> Vec<Orden> {
-            self._listar_ordenes_de_comprador(comprador)
+        pub fn listar_ordenes_de_comprador(&self) -> Vec<Orden> {
+            let caller = self.env().caller();
+            self._listar_ordenes_de_comprador(caller)
         }
 
         // A partir de acá están las funciones internas que implementan la lógica del contrato.
@@ -947,7 +946,7 @@ mod marketplace {
 
         // ===== TESTS DE LISTADO DE ÓRDENES =====
 
-        /// Test: Listar órdenes de un comprador.
+        /// Test: Listar órdenes del comprador que llama.
         #[ink::test]
         fn listar_ordenes_de_comprador() {
             let accounts = get_accounts();
@@ -962,13 +961,13 @@ mod marketplace {
             mp.comprar(pid, 2).unwrap();
             mp.comprar(pid, 3).unwrap();
 
-            let ordenes = mp.listar_ordenes_de_comprador(accounts.bob);
+            let ordenes = mp.listar_ordenes_de_comprador();
             assert_eq!(ordenes.len(), 2);
             assert_eq!(ordenes[0].cantidad, 2);
             assert_eq!(ordenes[1].cantidad, 3);
         }
 
-        /// Test: Listar órdenes de comprador sin órdenes retorna vector vacío.
+        /// Test: Listar órdenes cuando no se tienen órdenes retorna vector vacío.
         #[ink::test]
         fn listar_ordenes_comprador_sin_ordenes() {
             let accounts = get_accounts();
@@ -977,7 +976,7 @@ mod marketplace {
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Comprador).unwrap();
 
-            let ordenes = mp.listar_ordenes_de_comprador(accounts.alice);
+            let ordenes = mp.listar_ordenes_de_comprador();
             assert_eq!(ordenes.len(), 0);
         }
 
