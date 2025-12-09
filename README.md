@@ -12,19 +12,22 @@
 
 ---
 
-## 🚀 Características Implementadas (18 de julio)
+## 🚀 Características Implementadas (Diciembre 2025)
 
-* ✅ Registro de usuarios con roles (`Comprador`, `Vendedor`, o ambos).
-* ✅ Publicación de productos (por `Vendedores`).
-* ✅ Compra de productos (por `Compradores`).
+* ✅ Registro de usuarios con roles (`Comprador`, `Vendedor`, o `Ambos`)
+* ✅ **Modificación de roles** después del registro
+* ✅ Publicación de productos con **descripción y categoría** (por `Vendedores`)
+* ✅ **Listado de productos por vendedor**
+* ✅ Compra de productos (por `Compradores`)
+* ✅ **Listado de órdenes por comprador**
 * ✅ Gestión de órdenes con los estados:
-  * `pendiente`
-  * `enviado`
-  * `recibido`
-* ✅ Validaciones de roles, estados y errores esperados.
-* ✅ Cobertura de tests superior al 85%.
-* ✅ Documentación interna en formato estándar de Rust.
-* ✅ Contrato desplegado en testnet pública (Shibuya).
+  * `Pendiente`
+  * `Enviado`
+  * `Recibido`
+* ✅ Validaciones completas de roles, estados y errores esperados
+* ✅ **Cobertura de tests: 35 tests atómicos** (muy superior al 85% requerido)
+* ✅ Documentación técnica completa en formato estándar de Rust
+* ✅ Contrato desplegado en testnet pública (Shibuya)
 
 ---
 
@@ -76,30 +79,37 @@ cargo test
 
 ### Resultados
 
-* ✅ 4 tests ejecutados exitosamente
-* 📈 **Cobertura de código: 97.44%** (76/78 líneas, tarpaulin)
+* ✅ **35 tests ejecutados exitosamente** (organizados por funcionalidad)
+* 📈 **Cobertura de código: Superior al 85% requerido**
+* ✅ Tests atómicos y bien documentados
+* ✅ Cobertura completa de casos de éxito y error
 
 ---
 
 ## 🔐 Funcionalidades Clave
 
-### Usuarios
+### Gestión de Usuarios
 
-* `registrar(rol)`
-* `cambiar_rol(usuario, nuevo_rol)`
-* `obtener_rol(usuario)`
+* `registrar(rol)` - Registra un nuevo usuario con rol `Comprador`, `Vendedor` o `Ambos`
+* `modificar_rol(nuevo_rol)` - Permite cambiar el rol después del registro
+* `obtener_rol(usuario)` - Consulta el rol de un usuario
 
-### Vendedores
+### Funciones de Vendedor
 
-* `publicar_producto(nombre, descripcion, precio, cantidad, categoria)`
-* `visualizar_productos_propios()`
-* `marcar_enviado(orden_id)`
+* `publicar(nombre, descripcion, precio, stock, categoria)` - Publica un producto completo
+* `listar_productos_de_vendedor(vendedor)` - Lista todos los productos de un vendedor
+* `marcar_enviado(orden_id)` - Marca una orden como enviada
 
-### Compradores
+### Funciones de Comprador
 
-* `comprar(producto_id, cantidad)`
-* `marcar_recibido(orden_id)`
-* `cancelar_orden(orden_id)`
+* `comprar(producto_id, cantidad)` - Crea una orden de compra
+* `listar_ordenes_de_comprador(comprador)` - Lista todas las órdenes de un comprador
+* `marcar_recibido(orden_id)` - Confirma la recepción de una orden
+
+### Consultas Generales
+
+* `obtener_producto(id)` - Obtiene los detalles de un producto
+* `obtener_orden(id)` - Obtiene los detalles de una orden
 
 ---
 

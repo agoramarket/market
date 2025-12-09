@@ -8,9 +8,12 @@ Esta sección del documento describe la funcionalidad y el uso del smart contrac
 
 El contrato `Marketplace` permite:
 1.  **Registro de Usuarios**: Los usuarios se registran con un rol específico: `Comprador`, `Vendedor` o `Ambos`.
-2.  **Publicación de Productos**: Los vendedores pueden listar productos con nombre, precio y stock.
-3.  **Compra de Productos**: Los compradores pueden crear órdenes para adquirir productos.
-4.  **Gestión de Órdenes**: Las órdenes siguen un ciclo de vida simple: `Pendiente` -> `Enviado` -> `Recibido`.
+2.  **Modificación de Roles**: Los usuarios pueden cambiar su rol después del registro.
+3.  **Publicación de Productos**: Los vendedores pueden listar productos con nombre, descripción, precio, stock y categoría.
+4.  **Listado de Productos**: Consultar todos los productos de un vendedor específico.
+5.  **Compra de Productos**: Los compradores pueden crear órdenes para adquirir productos.
+6.  **Listado de Órdenes**: Consultar todas las órdenes de un comprador específico.
+7.  **Gestión de Órdenes**: Las órdenes siguen un ciclo de vida simple: `Pendiente` -> `Enviado` -> `Recibido`.
 
 ---
 
@@ -33,9 +36,11 @@ Representa el estado de una `Orden`.
 ### `Producto` (Struct)
 Almacena la información de un artículo en venta.
 - `vendedor: AccountId`: La cuenta del usuario que vende el producto.
-- `nombre: String`: El nombre del producto.
+- `nombre: String`: El nombre del producto (máximo 64 caracteres).
+- `descripcion: String`: Descripción detallada del producto (máximo 256 caracteres).
 - `precio: Balance`: El costo del producto.
 - `stock: u32`: La cantidad de unidades disponibles.
+- `categoria: String`: Categoría del producto (máximo 32 caracteres).
 
 ### `Orden` (Struct)
 Representa una transacción de compra.
@@ -91,6 +96,23 @@ marketplace.registrar(Rol::Vendedor);
 // Asumimos que 'bob' es la cuenta que llama al contrato.
 // Bob se registra como comprador.
 marketplace.registrar(Rol::Comprador);
+
+// Charlie se registra con ambos roles.
+marketplace.registrar(Rol::Ambos);
+```
+
+### `modificar_rol(nuevo_rol: Rol)`
+Modifica el rol de un usuario ya registrado.
+- **Argumentos**:
+  - `nuevo_rol: Rol`: El nuevo rol a asignar (`Comprador`, `Vendedor`, o `Ambos`).
+- **Permisos**: El usuario debe estar previamente registrado.
+- **Errores**: `Error::SinRegistro`.
+
+**Ejemplo de uso:**
+```rust
+// Bob (registrado como Comprador) decide cambiar a Ambos para poder vender.
+marketplace.modificar_rol(Rol::Ambos);
+assert_eq!(marketplace.obtener_rol(bob), Some(Rol::Ambos));
 ```
 
 ### `obtener_rol(usuario: AccountId)`
@@ -106,12 +128,14 @@ let rol_de_charlie = marketplace.obtener_rol(charlie_account_id);
 // rol_de_charlie -> None (si no se ha registrado)
 ```
 
-### `publicar(nombre: String, precio: Balance, stock: u32)`
+### `publicar(nombre: String, descripcion: String, precio: Balance, stock: u32, categoria: String)`
 Publica un nuevo producto en el marketplace.
 - **Argumentos**:
-  - `nombre: String`: Nombre del producto.
+  - `nombre: String`: Nombre del producto (máximo 64 caracteres).
+  - `descripcion: String`: Descripción del producto (máximo 256 caracteres).
   - `precio: Balance`: Debe ser mayor que `0`.
   - `stock: u32`: Debe ser mayor que `0`.
+  - `categoria: String`: Categoría del producto (máximo 32 caracteres).
 - **Permisos**: El llamante debe tener el rol `Vendedor` o `Ambos`.
 - **Errores**: `Error::SinPermiso`, `Error::SinRegistro`, `Error::ParamInvalido`, `Error::IdOverflow`.
 - **Retorno**: `Ok(u32)` con el ID del nuevo producto.
@@ -119,7 +143,13 @@ Publica un nuevo producto en el marketplace.
 **Ejemplo de uso:**
 ```rust
 // Alice (vendedora) publica un producto.
-let resultado = marketplace.publicar("Laptop Modelo Z".to_string(), 1500, 10);
+let resultado = marketplace.publicar(
+    "Laptop Modelo Z".to_string(),
+    "Laptop gaming de alta gama con RTX 4090".to_string(),
+    1500,
+    10,
+    "Electrónica".to_string()
+);
 // resultado -> Ok(1)
 let id_producto = resultado.unwrap();
 ```
@@ -131,7 +161,26 @@ Devuelve la información de un producto por su ID.
 **Ejemplo de uso:**
 ```rust
 let producto = marketplace.obtener_producto(1);
-// producto -> Some(Producto { vendedor: alice_account_id, nombre: "Laptop Modelo Z", precio: 1500, stock: 10 })
+// producto -> Some(Producto { 
+//   vendedor: alice_account_id, 
+//   nombre: "Laptop Modelo Z", 
+//   descripcion: "Laptop gaming de alta gama con RTX 4090",
+//   precio: 1500, 
+//   stock: 10,
+//   categoria: "Electrónica"
+// })
+```
+
+### `listar_productos_de_vendedor(vendedor: AccountId)`
+Lista todos los productos publicados por un vendedor específico.
+- **Argumentos**:
+  - `vendedor: AccountId`: La cuenta del vendedor.
+- **Retorno**: `Vec<Producto>` con todos los productos del vendedor (vacío si no tiene productos).
+
+**Ejemplo de uso:**
+```rust
+let productos_alice = marketplace.listar_productos_de_vendedor(alice_account_id);
+// productos_alice -> [Producto { ... }, Producto { ... }, ...]
 ```
 
 ### `comprar(id_prod: u32, cant: u32)`
@@ -163,6 +212,18 @@ Devuelve la información de una orden por su ID.
 ```rust
 let orden = marketplace.obtener_orden(1);
 // orden -> Some(Orden { comprador: bob_account_id, vendedor: alice_account_id, id_prod: 1, cantidad: 2, estado: Estado::Pendiente })
+```
+
+### `listar_ordenes_de_comprador(comprador: AccountId)`
+Lista todas las órdenes realizadas por un comprador específico.
+- **Argumentos**:
+  - `comprador: AccountId`: La cuenta del comprador.
+- **Retorno**: `Vec<Orden>` con todas las órdenes del comprador (vacío si no tiene órdenes).
+
+**Ejemplo de uso:**
+```rust
+let ordenes_bob = marketplace.listar_ordenes_de_comprador(bob_account_id);
+// ordenes_bob -> [Orden { ... }, Orden { ... }, ...]
 ```
 
 ### `marcar_enviado(oid: u32)`
@@ -229,13 +290,25 @@ assert_eq!(marketplace.obtener_rol(bob), Some(Rol::Comprador));
 // --- PASO 2: Publicación de un producto ---
 // Alice publica un producto.
 // (Llamado desde la cuenta de Alice)
-let id_producto = marketplace.publicar("Libro de ink!".to_string(), 50, 20).unwrap();
+let id_producto = marketplace.publicar(
+    "Libro de ink!".to_string(),
+    "Guía completa de programación en ink! v5".to_string(),
+    50,
+    20,
+    "Libros".to_string()
+).unwrap();
 assert_eq!(id_producto, 1);
 
 // Verificamos que el producto se creó correctamente.
 let producto = marketplace.obtener_producto(1).unwrap();
 assert_eq!(producto.nombre, "Libro de ink!");
+assert_eq!(producto.descripcion, "Guía completa de programación en ink! v5");
 assert_eq!(producto.stock, 20);
+assert_eq!(producto.categoria, "Libros");
+
+// Alice puede listar sus productos
+let productos_alice = marketplace.listar_productos_de_vendedor(alice);
+assert_eq!(productos_alice.len(), 1);
 
 
 // --- PASO 3: Compra del producto ---
@@ -254,6 +327,10 @@ assert_eq!(orden.comprador, bob);
 assert_eq!(orden.vendedor, alice);
 assert_eq!(orden.cantidad, 3);
 assert_eq!(orden.estado, Estado::Pendiente);
+
+// Bob puede listar sus órdenes
+let ordenes_bob = marketplace.listar_ordenes_de_comprador(bob);
+assert_eq!(ordenes_bob.len(), 1);
 
 
 // --- PASO 4: El vendedor envía la orden ---
@@ -277,6 +354,59 @@ assert_eq!(orden_recibida.estado, Estado::Recibido);
 
 // El flujo ha concluido con éxito.
 ```
+
+---
+
+## Tests y Validación
+
+El contrato incluye una suite comprehensiva de **35 tests** organizados por funcionalidad:
+
+### Cobertura de Tests
+
+#### Registro de Usuarios (4 tests)
+- Registro exitoso con cada rol (`Comprador`, `Vendedor`, `Ambos`)
+- Error al registrar usuario ya registrado
+
+#### Modificación de Roles (3 tests)
+- Modificación exitosa de `Comprador` a `Ambos`
+- Modificación exitosa de `Vendedor` a `Ambos`
+- Error al modificar rol sin estar registrado
+
+#### Publicación de Productos (8 tests)
+- Publicación exitosa con todos los campos
+- Errores de permisos y validación de parámetros
+- Validación de longitudes máximas (nombre, descripción, categoría)
+
+#### Listado de Productos (2 tests)
+- Listado exitoso de productos por vendedor
+- Retorno de vector vacío cuando no hay productos
+
+#### Compra de Productos (6 tests)
+- Compra exitosa con actualización de stock
+- Errores de permisos, stock insuficiente, producto inexistente
+
+#### Listado de Órdenes (2 tests)
+- Listado exitoso de órdenes por comprador
+- Retorno de vector vacío cuando no hay órdenes
+
+#### Flujo de Órdenes (7 tests)
+- Cambios de estado exitosos
+- Errores de permisos y estados inválidos
+
+#### Casos Especiales (3 tests)
+- Overflow de IDs de producto y orden
+- Rol `Ambos` puede comprar y vender
+
+### Ejecutar Tests
+
+```bash
+cd contracts/market
+cargo test
+```
+
+**Resultado esperado**: 35 tests pasando exitosamente.
+
+---
 
 ## Contrato Reportes
 
