@@ -433,8 +433,10 @@ mod marketplace {
             let rol_vendedor = self.rol_de(vendedor)?;
             self.ensure(rol_vendedor.es_vendedor(), Error::SinPermiso)?;
             self.ensure(
-                precio > 0 && stock > 0 && nombre.len() <= 64 
-                && descripcion.len() <= 256 && categoria.len() <= 32,
+                precio > 0 && stock > 0 
+                && !nombre.is_empty() && nombre.len() <= 64 
+                && !descripcion.is_empty() && descripcion.len() <= 256 
+                && !categoria.is_empty() && categoria.len() <= 32,
                 Error::ParamInvalido,
             )?;
 
@@ -807,6 +809,63 @@ mod marketplace {
                 100,
                 5,
                 categoria_larga,
+            );
+            assert_eq!(resultado, Err(Error::ParamInvalido));
+        }
+
+        /// Test: Error al publicar producto con nombre vacío.
+        #[ink::test]
+        fn publicar_producto_nombre_vacio() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+
+            let resultado = mp.publicar(
+                "".to_string(),
+                "Descripción válida".to_string(),
+                100,
+                5,
+                "Categoría".to_string(),
+            );
+            assert_eq!(resultado, Err(Error::ParamInvalido));
+        }
+
+        /// Test: Error al publicar producto con descripción vacía.
+        #[ink::test]
+        fn publicar_producto_descripcion_vacia() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+
+            let resultado = mp.publicar(
+                "Producto".to_string(),
+                "".to_string(),
+                100,
+                5,
+                "Categoría".to_string(),
+            );
+            assert_eq!(resultado, Err(Error::ParamInvalido));
+        }
+
+        /// Test: Error al publicar producto con categoría vacía.
+        #[ink::test]
+        fn publicar_producto_categoria_vacia() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+
+            let resultado = mp.publicar(
+                "Producto".to_string(),
+                "Descripción válida".to_string(),
+                100,
+                5,
+                "".to_string(),
             );
             assert_eq!(resultado, Err(Error::ParamInvalido));
         }
