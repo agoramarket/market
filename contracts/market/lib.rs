@@ -67,10 +67,14 @@ mod marketplace {
         pub vendedor: AccountId,
         /// El nombre del producto.
         pub nombre: String,
+        /// Descripción detallada del producto.
+        pub descripcion: String,
         /// El precio del producto.
         pub precio: Balance,
         /// La cantidad de unidades disponibles del producto.
         pub stock: u32,
+        /// Categoría del producto.
+        pub categoria: String,
     }
 
     /// Representa una orden de compra de un producto.
@@ -184,6 +188,25 @@ mod marketplace {
             self.roles.get(usuario)
         }
 
+        /// Modifica el rol de un usuario ya registrado.
+        ///
+        /// El usuario debe estar previamente registrado para poder modificar su rol.
+        /// Esta función permite que un usuario cambie de `Comprador` a `Vendedor`,
+        /// de `Vendedor` a `Comprador`, o que cualquiera de ellos cambie a `Ambos`.
+        ///
+        /// # Argumentos
+        ///
+        /// * `nuevo_rol` - El nuevo `Rol` a asignar al llamante.
+        ///
+        /// # Errores
+        ///
+        /// Devuelve `Error::SinRegistro` si el llamante no está registrado previamente.
+        #[ink(message)]
+        pub fn modificar_rol(&mut self, nuevo_rol: Rol) -> Result<(), Error> {
+            let caller = self.env().caller();
+            self._modificar_rol(caller, nuevo_rol)
+        }
+
         /// Publica un nuevo producto en el marketplace.
         ///
         /// El llamante debe estar registrado como `Vendedor` o `Ambos`.
@@ -191,13 +214,15 @@ mod marketplace {
         /// # Argumentos
         ///
         /// * `nombre` - El nombre del producto (máximo 64 caracteres).
+        /// * `descripcion` - Descripción del producto (máximo 256 caracteres).
         /// * `precio` - El precio del producto (debe ser mayor que 0).
         /// * `stock` - La cantidad de unidades disponibles (debe ser mayor que 0).
+        /// * `categoria` - Categoría del producto (máximo 32 caracteres).
         ///
         /// # Errores
         ///
         /// - `Error::SinPermiso` si el llamante no es un vendedor.
-        /// - `Error::ParamInvalido` si el precio, stock o nombre no son válidos.
+        /// - `Error::ParamInvalido` si el precio, stock, nombre, descripción o categoría no son válidos.
         /// - `Error::IdOverflow` si se ha alcanzado el número máximo de productos.
         ///
         /// # Retorno
@@ -207,11 +232,13 @@ mod marketplace {
         pub fn publicar(
             &mut self,
             nombre: String,
+            descripcion: String,
             precio: Balance,
             stock: u32,
+            categoria: String,
         ) -> Result<u32, Error> {
             let vendedor = self.env().caller();
-            self._publicar(vendedor, nombre, precio, stock)
+            self._publicar(vendedor, nombre, descripcion, precio, stock, categoria)
         }
 
         /// Obtiene la información de un producto por su ID.
@@ -354,7 +381,6 @@ mod marketplace {
         fn _listar_productos_de_vendedor(&self, vendedor: AccountId) -> Vec<Producto> {
             let mut productos_vendedor = Vec::new();
 
-            // Itera sobre todos los IDs de productos desde 1 hasta el último ID generado.
             for pid in 1..self.next_prod_id {
                 if let Some(producto) = self.productos.get(pid) {
                     if producto.vendedor == vendedor {
@@ -370,7 +396,6 @@ mod marketplace {
         fn _listar_ordenes_de_comprador(&self, comprador: AccountId) -> Vec<Orden> {
             let mut ordenes_comprador = Vec::new();
 
-            // Itera sobre todos los IDs de órdenes desde 1 hasta el último ID generado.
             for oid in 1..self.next_order_id {
                 if let Some(orden) = self.ordenes.get(oid) {
                     if orden.comprador == comprador {
@@ -384,11 +409,15 @@ mod marketplace {
 
         /// Lógica interna para registrar un usuario.
         fn _registrar(&mut self, caller: AccountId, rol: Rol) -> Result<(), Error> {
-            // Asegura que el usuario (caller) no esté ya registrado con un rol. Si ya está registrado, devuelve `Error::YaRegistrado`.
             self.ensure(!self.roles.contains(caller), Error::YaRegistrado)?;
-            // Inserta el nuevo rol para el usuario en el mapping `roles`.
             self.roles.insert(caller, &rol);
-            // Devuelve `Ok` para indicar que el registro fue exitoso.
+            Ok(())
+        }
+
+        /// Lógica interna para modificar el rol de un usuario.
+        fn _modificar_rol(&mut self, caller: AccountId, nuevo_rol: Rol) -> Result<(), Error> {
+            self.ensure(self.roles.contains(caller), Error::SinRegistro)?;
+            self.roles.insert(caller, &nuevo_rol);
             Ok(())
         }
 
@@ -397,37 +426,32 @@ mod marketplace {
             &mut self,
             vendedor: AccountId,
             nombre: String,
+            descripcion: String,
             precio: Balance,
             stock: u32,
+            categoria: String,
         ) -> Result<u32, Error> {
-            // Obtiene el rol del vendedor. Devuelve `Error::SinRegistro` si no está registrado.
             let rol_vendedor = self.rol_de(vendedor)?;
-            // Asegura que el usuario tenga permisos de vendedor. Si no, devuelve `Error::SinPermiso`.
             self.ensure(rol_vendedor.es_vendedor(), Error::SinPermiso)?;
-            // Valida los parámetros del producto. Si son inválidos, devuelve `Error::ParamInvalido`.
             self.ensure(
-                precio > 0 && stock > 0 && nombre.len() <= 64,
+                precio > 0 && stock > 0 && nombre.len() <= 64 
+                && descripcion.len() <= 256 && categoria.len() <= 32,
                 Error::ParamInvalido,
             )?;
 
-            // Obtiene el ID para el nuevo producto.
             let pid = self.next_prod_id;
-            // Incrementa el contador para el próximo ID de producto, manejando un posible desbordamiento.
-            // En un inicio fué implementado con saturating_add, pero luego refactoricé porque S_A "silencia" el error de desbordamiento y "congela" _next_prod_id_ en u32::MAX.
-            // En ese escenario hipotético, el contrato crearía productos con el mismo ID.
             self.next_prod_id = self.next_prod_id.checked_add(1).ok_or(Error::IdOverflow)?;
 
-            // Crea una nueva instancia de `Producto` con los datos proporcionados.
             let producto = Producto {
                 vendedor,
                 nombre,
+                descripcion,
                 precio,
                 stock,
+                categoria,
             };
 
-            // Inserta el nuevo producto en el mapping `productos`.
             self.productos.insert(pid, &producto);
-            // Devuelve el ID del producto recién creado.
             Ok(pid)
         }
 
@@ -438,29 +462,19 @@ mod marketplace {
             id_prod: u32,
             cant: u32,
         ) -> Result<u32, Error> {
-            // Obtiene el rol del comprador. Devuelve `Error::SinRegistro` si no está registrado.
             let rol_comprador = self.rol_de(comprador)?;
-            // Asegura que el usuario tenga permisos de comprador. Si no, devuelve `Error::SinPermiso`.
             self.ensure(rol_comprador.es_comprador(), Error::SinPermiso)?;
-            // Asegura que la cantidad a comprar sea mayor que cero.
             self.ensure(cant > 0, Error::ParamInvalido)?;
 
-            // Obtiene el producto a comprar. Si no existe, devuelve `Error::ProdInexistente`.
             let mut producto = self.productos.get(id_prod).ok_or(Error::ProdInexistente)?;
-            // Verifica que haya suficiente stock. Si no, devuelve `Error::StockInsuf`.
             self.ensure(producto.stock >= cant, Error::StockInsuf)?;
 
-            // Reduce el stock del producto y maneja un posible subdesbordamiento.
             producto.stock = producto.stock.checked_sub(cant).ok_or(Error::StockInsuf)?;
-            // Actualiza la información del producto en el almacenamiento.
             self.productos.insert(id_prod, &producto);
 
-            // Obtiene el ID para la nueva orden.
             let oid = self.next_order_id;
-            // Incrementa el contador para el próximo ID de orden, manejando un posible desbordamiento.
             self.next_order_id = self.next_order_id.checked_add(1).ok_or(Error::IdOverflow)?;
 
-            // Crea una nueva instancia de `Orden`.
             let orden = Orden {
                 comprador,
                 vendedor: producto.vendedor,
@@ -469,43 +483,28 @@ mod marketplace {
                 estado: Estado::Pendiente,
             };
 
-            // Inserta la nueva orden en el mapping `ordenes`.
             self.ordenes.insert(oid, &orden);
-
-            // Devuelve el ID de la orden recién creada.
             Ok(oid)
         }
 
         /// Lógica interna para marcar una orden como enviada.
         fn _marcar_enviado(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
-            // Obtiene la orden. Si no existe, devuelve `Error::OrdenInexistente`.
             let mut orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
-
-            // Asegura que quien llama es el vendedor de la orden. Si no, devuelve `Error::SinPermiso`.
             self.ensure(orden.vendedor == caller, Error::SinPermiso)?;
-            // Asegura que la orden esté en estado `Pendiente`. Si no, devuelve `Error::EstadoInvalido`.
             self.ensure(orden.estado == Estado::Pendiente, Error::EstadoInvalido)?;
 
-            // Cambia el estado de la orden a `Enviado`.
             orden.estado = Estado::Enviado;
-            // Actualiza la orden en el almacenamiento.
             self.ordenes.insert(oid, &orden);
             Ok(())
         }
 
         /// Lógica interna para marcar una orden como recibida.
         fn _marcar_recibido(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
-            // Obtiene la orden. Si no existe, devuelve `Error::OrdenInexistente`.
             let mut orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
-
-            // Asegura que quien llama es el comprador de la orden. Si no, devuelve `Error::SinPermiso`.
             self.ensure(orden.comprador == caller, Error::SinPermiso)?;
-            // Asegura que la orden esté en estado `Enviado`. Si no, devuelve `Error::EstadoInvalido`.
             self.ensure(orden.estado == Estado::Enviado, Error::EstadoInvalido)?;
 
-            // Cambia el estado de la orden a `Recibido`.
             orden.estado = Estado::Recibido;
-            // Actualiza la orden en el almacenamiento.
             self.ordenes.insert(oid, &orden);
             Ok(())
         }
@@ -524,11 +523,9 @@ mod marketplace {
         ///
         /// Devuelve `Ok(())` si la condición es verdadera, o `Err(err)` si es falsa.
         fn ensure(&self, cond: bool, err: Error) -> Result<(), Error> {
-            // Si la condición es verdadera, devuelve `Ok`.
             if cond {
                 Ok(())
             } else {
-                // Si la condición es falsa, devuelve el error especificado.
                 Err(err)
             }
         }
@@ -547,7 +544,6 @@ mod marketplace {
         ///
         /// Devuelve el `Rol` del usuario si está registrado.
         fn rol_de(&self, quien: AccountId) -> Result<Rol, Error> {
-            // Intenta obtener el rol del usuario. Si no existe, devuelve `Error::SinRegistro`.
             self.roles.get(quien).ok_or(Error::SinRegistro)
         }
     }
