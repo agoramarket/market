@@ -1,6 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 
-/// Ágora Marketplace - MVP, julio de 2025.
+/// Ágora Marketplace
 ///
 /// Contrato market - Lógica de compras y ventas en un marketplace descentralizado.
 ///
@@ -308,15 +308,53 @@ mod marketplace {
             self.ordenes.get(id)
         }
 
+        /// Lista todos los productos publicados por un vendedor específico.
+        ///
+        /// # Argumentos
+        ///
+        /// * `vendedor` - La `AccountId` del vendedor cuyos productos se desean listar.
+        ///
+        /// # Retorno
+        ///
+        /// Devuelve un `Vec<Producto>` con todos los productos del vendedor.
+        /// Si el vendedor no tiene productos, devuelve un vector vacío.
+        ///
+        /// # Nota
+        ///
+        /// Esta función itera sobre todos los IDs de productos, por lo que su costo
+        /// aumenta linealmente con el número total de productos en el marketplace.
         #[ink(message)]
         pub fn listar_productos_de_vendedor(&self, vendedor: AccountId) -> Vec<Producto> {
             self._listar_productos_de_vendedor(vendedor)
         }
 
+        /// Lista todas las órdenes realizadas por un comprador específico.
+        ///
+        /// # Argumentos
+        ///
+        /// * `comprador` - La `AccountId` del comprador cuyas órdenes se desean listar.
+        ///
+        /// # Retorno
+        ///
+        /// Devuelve un `Vec<Orden>` con todas las órdenes del comprador.
+        /// Si el comprador no tiene órdenes, devuelve un vector vacío.
+        ///
+        /// # Nota
+        ///
+        /// Esta función itera sobre todos los IDs de órdenes, por lo que su costo
+        /// aumenta linealmente con el número total de órdenes en el marketplace.
+        #[ink(message)]
+        pub fn listar_ordenes_de_comprador(&self, comprador: AccountId) -> Vec<Orden> {
+            self._listar_ordenes_de_comprador(comprador)
+        }
+
+        // A partir de acá están las funciones internas que implementan la lógica del contrato.
+
+        /// Lógica interna para listar productos de un vendedor.
         fn _listar_productos_de_vendedor(&self, vendedor: AccountId) -> Vec<Producto> {
-            // Implementación pendiente
             let mut productos_vendedor = Vec::new();
 
+            // Itera sobre todos los IDs de productos desde 1 hasta el último ID generado.
             for pid in 1..self.next_prod_id {
                 if let Some(producto) = self.productos.get(pid) {
                     if producto.vendedor == vendedor {
@@ -327,16 +365,12 @@ mod marketplace {
             
             productos_vendedor
         }
-
-        #[ink(message)]
-        pub fn listar_ordenes_de_comprador(&self, comprador: AccountId) -> Vec<Orden> {
-            self._listar_ordenes_de_comprador(comprador)
-        }
         
+        /// Lógica interna para listar órdenes de un comprador.
         fn _listar_ordenes_de_comprador(&self, comprador: AccountId) -> Vec<Orden> {
-            // Implementación pendiente
             let mut ordenes_comprador = Vec::new();
 
+            // Itera sobre todos los IDs de órdenes desde 1 hasta el último ID generado.
             for oid in 1..self.next_order_id {
                 if let Some(orden) = self.ordenes.get(oid) {
                     if orden.comprador == comprador {
@@ -347,8 +381,6 @@ mod marketplace {
             
             ordenes_comprador
         }
-
-        // A partir de acá están las funciones internas que implementan la lógica del contrato.
 
         /// Lógica interna para registrar un usuario.
         fn _registrar(&mut self, caller: AccountId, rol: Rol) -> Result<(), Error> {
@@ -479,7 +511,18 @@ mod marketplace {
         }
 
         /// Helper para validar condiciones.
-        // Existe más que nada para hacer que la lógica de validación sea más legible y fachera.
+        ///
+        /// Esta función auxiliar facilita la validación de condiciones en el contrato,
+        /// haciendo que el código sea más legible y expresivo.
+        ///
+        /// # Argumentos
+        ///
+        /// * `cond` - La condición booleana a verificar.
+        /// * `err` - El error a devolver si la condición es falsa.
+        ///
+        /// # Retorno
+        ///
+        /// Devuelve `Ok(())` si la condición es verdadera, o `Err(err)` si es falsa.
         fn ensure(&self, cond: bool, err: Error) -> Result<(), Error> {
             // Si la condición es verdadera, devuelve `Ok`.
             if cond {
@@ -490,7 +533,19 @@ mod marketplace {
             }
         }
 
-        /// Helper que retorna rol.
+        /// Helper que obtiene el rol de un usuario.
+        ///
+        /// # Argumentos
+        ///
+        /// * `quien` - La `AccountId` del usuario cuyo rol se desea obtener.
+        ///
+        /// # Errores
+        ///
+        /// Devuelve `Error::SinRegistro` si el usuario no está registrado.
+        ///
+        /// # Retorno
+        ///
+        /// Devuelve el `Rol` del usuario si está registrado.
         fn rol_de(&self, quien: AccountId) -> Result<Rol, Error> {
             // Intenta obtener el rol del usuario. Si no existe, devuelve `Error::SinRegistro`.
             self.roles.get(quien).ok_or(Error::SinRegistro)

@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "contracts/market",
+]
+resolver = "2"
+
+[workspace.package]
+authors = ["The Agora Developers"]
+repository = "https://github.com/agoramarket/market"
+edition = "2021"
+
+[profile.release]
+panic = "abort"
+lto = true
