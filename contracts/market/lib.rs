@@ -139,6 +139,8 @@ mod marketplace {
         CancelacionInexistente,
         /// Un usuario intenta comprarse a sí mismo (vendedor intenta comprar su propio producto).
         AutoCompraProhibida,
+        /// La orden ha sido cancelada y no puede ser modificada.
+        OrdenCancelada,
     }
 
     /// La estructura de almacenamiento principal del contrato.
@@ -589,6 +591,8 @@ mod marketplace {
         fn _marcar_enviado(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let mut orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             self.ensure(orden.vendedor == caller, Error::SinPermiso)?;
+            // Validar explícitamente que NO esté cancelada
+            self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
             self.ensure(orden.estado == Estado::Pendiente, Error::EstadoInvalido)?;
 
             orden.estado = Estado::Enviado;
@@ -600,6 +604,8 @@ mod marketplace {
         fn _marcar_recibido(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let mut orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             self.ensure(orden.comprador == caller, Error::SinPermiso)?;
+            // Validar explícitamente que NO esté cancelada
+            self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
             self.ensure(orden.estado == Estado::Enviado, Error::EstadoInvalido)?;
 
             orden.estado = Estado::Recibido;
@@ -610,6 +616,9 @@ mod marketplace {
         /// Lógica interna para solicitar la cancelación de una orden.
         fn _solicitar_cancelacion(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
+            
+            // Validar expl\u00edcitamente que la orden NO esté cancelada
+            self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
             
             // Validar que el caller sea comprador o vendedor
             self.ensure(
@@ -646,6 +655,9 @@ mod marketplace {
             
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             
+            // Validar explícitamente que la orden NO esté ya cancelada
+            self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
+            
             // Validar que el caller sea el otro participante
             self.ensure(
                 self.es_otro_participante(caller, &orden, cancelacion.solicitante),
@@ -678,6 +690,9 @@ mod marketplace {
                 .ok_or(Error::CancelacionInexistente)?;
             
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
+            
+            // Validar explícitamente que la orden NO esté ya cancelada
+            self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
             
             // Validar que el caller sea el otro participante
             self.ensure(
