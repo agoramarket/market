@@ -137,6 +137,8 @@ mod marketplace {
         CancelacionYaPendiente,
         /// No existe una solicitud de cancelación pendiente para esta orden.
         CancelacionInexistente,
+        /// Un usuario intenta comprarse a sí mismo (vendedor intenta comprar su propio producto).
+        AutoCompraProhibida,
     }
 
     /// La estructura de almacenamiento principal del contrato.
@@ -562,7 +564,7 @@ mod marketplace {
             self.ensure(cant > 0, Error::ParamInvalido)?;
 
             let mut producto = self.productos.get(id_prod).ok_or(Error::ProdInexistente)?;
-            self.ensure(producto.vendedor != comprador, Error::SinPermiso)?;
+            self.ensure(producto.vendedor != comprador, Error::AutoCompraProhibida)?;
             self.ensure(producto.stock >= cant, Error::StockInsuf)?;
 
             producto.stock = producto.stock.checked_sub(cant).ok_or(Error::StockInsuf)?;
