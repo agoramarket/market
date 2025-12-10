@@ -141,6 +141,8 @@ mod marketplace {
         AutoCompraProhibida,
         /// La orden ha sido cancelada y no puede ser modificada.
         OrdenCancelada,
+        /// El solicitante de cancelación no puede aceptar o rechazar su propia solicitud; debe hacerlo el otro participante.
+        SolicitanteCancelacion,
     }
 
     /// La estructura de almacenamiento principal del contrato.
@@ -655,6 +657,12 @@ mod marketplace {
             
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             
+            // Validar explícitamente que el caller NO sea el solicitante
+            self.ensure(
+                caller != cancelacion.solicitante,
+                Error::SolicitanteCancelacion
+            )?;
+            
             // Validar explícitamente que la orden NO esté ya cancelada
             self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
             
@@ -690,6 +698,12 @@ mod marketplace {
                 .ok_or(Error::CancelacionInexistente)?;
             
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
+            
+            // Validar explícitamente que el caller NO sea el solicitante
+            self.ensure(
+                caller != cancelacion.solicitante,
+                Error::SolicitanteCancelacion
+            )?;
             
             // Validar explícitamente que la orden NO esté ya cancelada
             self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
