@@ -143,6 +143,8 @@ mod marketplace {
         OrdenCancelada,
         /// El solicitante de cancelación no puede aceptar o rechazar su propia solicitud; debe hacerlo el otro participante.
         SolicitanteCancelacion,
+        /// El stock del producto excedería el valor máximo al intentar restaurarlo (overflow).
+        StockOverflow,
     }
 
     /// La estructura de almacenamiento principal del contrato.
@@ -677,7 +679,7 @@ mod marketplace {
                 .ok_or(Error::ProdInexistente)?;
             producto.stock = producto.stock
                 .checked_add(orden.cantidad)
-                .ok_or(Error::IdOverflow)?;
+                .ok_or(Error::StockOverflow)?;
             self.productos.insert(orden.id_prod, &producto);
             
             // Cambiar el estado de la orden a Cancelada
