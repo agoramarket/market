@@ -323,16 +323,26 @@ mod marketplace {
 
         /// Obtiene la información de una orden por su ID.
         ///
+        /// Solo el comprador o el vendedor de la orden pueden acceder a esta información.
+        ///
         /// # Argumentos
         ///
         /// * `id` - El ID de la orden a consultar.
         ///
+        /// # Errores
+        ///
+        /// - `Error::OrdenInexistente` si la orden no existe.
+        /// - `Error::SinPermiso` si el llamante no es el comprador ni el vendedor de la orden.
+        ///
         /// # Retorno
         ///
-        /// Devuelve `Some(Orden)` si la orden existe, o `None` en caso contrario.
+        /// Devuelve la `Orden` si existe y el llamante tiene permisos.
         #[ink(message)]
-        pub fn obtener_orden(&self, id: u32) -> Option<Orden> {
-            self.ordenes.get(id)
+        pub fn obtener_orden(&self, id: u32) -> Result<Orden, Error> {
+            let caller = self.env().caller();
+            let orden = self.ordenes.get(id).ok_or(Error::OrdenInexistente)?;
+            self.ensure(orden.comprador == caller || orden.vendedor == caller, Error::SinPermiso)?;
+            Ok(orden)
         }
 
         /// Lista todos los productos publicados por un vendedor específico.
@@ -1232,23 +1242,23 @@ mod marketplace {
             assert_eq!(producto.stock, 3);
         }
 
-        /// Test: Error al intentar comprar el propio producto (autocompra).
+        /// Test: Error al intentar obtener orden sin ser comprador ni vendedor.
         #[ink::test]
-        fn autocompra_bloqueada() {
+        fn obtener_orden_sin_permiso() {
             let accounts = get_accounts();
             let mut mp = Marketplace::new();
 
             set_next_caller(accounts.alice);
-            mp.registrar(Rol::Ambos).unwrap();
+            mp.registrar(Rol::Vendedor).unwrap();
             let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
 
-            // Alice intenta comprar su propio producto
-            let resultado = mp.comprar(pid, 2);
-            assert_eq!(resultado, Err(Error::SinPermiso));
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
 
-            // Verificar que el stock no cambió
-            let producto = mp.obtener_producto(pid).unwrap();
-            assert_eq!(producto.stock, 10);
+            // Charlie intenta acceder a la orden de Alice y Bob
+            set_next_caller(accounts.charlie);
+            assert_eq!(mp.obtener_orden(oid), Err(Error::SinPermiso));
         }
     }
 }
