@@ -476,8 +476,6 @@ mod marketplace {
             self._rechazar_cancelacion(caller, oid)
         }
 
-        // A partir de acá están las funciones internas que implementan la lógica del contrato.
-
         /// Lógica interna para listar productos de un vendedor.
         fn _listar_productos_de_vendedor(&self, vendedor: AccountId) -> Vec<Producto> {
             let mut productos_vendedor = Vec::new();
@@ -595,7 +593,6 @@ mod marketplace {
         fn _marcar_enviado(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let mut orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             self.ensure(orden.vendedor == caller, Error::SinPermiso)?;
-            // Validar explícitamente que NO esté cancelada
             self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
             self.ensure(orden.estado == Estado::Pendiente, Error::EstadoInvalido)?;
 
@@ -608,7 +605,6 @@ mod marketplace {
         fn _marcar_recibido(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let mut orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             self.ensure(orden.comprador == caller, Error::SinPermiso)?;
-            // Validar explícitamente que NO esté cancelada
             self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
             self.ensure(orden.estado == Estado::Enviado, Error::EstadoInvalido)?;
 
@@ -621,28 +617,23 @@ mod marketplace {
         fn _solicitar_cancelacion(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             
-            // Validar expl\u00edcitamente que la orden NO esté cancelada
             self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
             
-            // Validar que el caller sea comprador o vendedor
             self.ensure(
                 caller == orden.comprador || caller == orden.vendedor,
                 Error::SinPermiso,
             )?;
             
-            // Validar que la orden esté en estado Pendiente o Enviado
             self.ensure(
                 orden.estado == Estado::Pendiente || orden.estado == Estado::Enviado,
                 Error::EstadoInvalido,
             )?;
             
-            // Validar que no exista una cancelación pendiente
             self.ensure(
                 !self.cancelaciones_pendientes.contains(oid),
                 Error::CancelacionYaPendiente,
             )?;
 
-            // Crear solicitud de cancelación
             let cancelacion = CancelacionPendiente {
                 oid,
                 solicitante: caller,
@@ -659,22 +650,18 @@ mod marketplace {
             
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             
-            // Validar explícitamente que el caller NO sea el solicitante
             self.ensure(
                 caller != cancelacion.solicitante,
                 Error::SolicitanteCancelacion
             )?;
             
-            // Validar explícitamente que la orden NO esté ya cancelada
             self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
             
-            // Validar que el caller sea el otro participante
             self.ensure(
                 self.es_otro_participante(caller, &orden, cancelacion.solicitante),
                 Error::SinPermiso
             )?;
             
-            // Restaurar el stock del producto
             let mut producto = self.productos.get(orden.id_prod)
                 .ok_or(Error::ProdInexistente)?;
             producto.stock = producto.stock
@@ -682,12 +669,10 @@ mod marketplace {
                 .ok_or(Error::StockOverflow)?;
             self.productos.insert(orden.id_prod, &producto);
             
-            // Cambiar el estado de la orden a Cancelada
             let mut orden_mut = orden.clone();
             orden_mut.estado = Estado::Cancelada;
             self.ordenes.insert(oid, &orden_mut);
             
-            // Eliminar la solicitud de cancelación
             self.cancelaciones_pendientes.remove(oid);
             
             Ok(())
@@ -701,22 +686,18 @@ mod marketplace {
             
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             
-            // Validar explícitamente que el caller NO sea el solicitante
             self.ensure(
                 caller != cancelacion.solicitante,
                 Error::SolicitanteCancelacion
             )?;
             
-            // Validar explícitamente que la orden NO esté ya cancelada
             self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
             
-            // Validar que el caller sea el otro participante
             self.ensure(
                 self.es_otro_participante(caller, &orden, cancelacion.solicitante),
                 Error::SinPermiso
             )?;
             
-            // Solo eliminar la solicitud de cancelación
             self.cancelaciones_pendientes.remove(oid);
             
             Ok(())
@@ -785,7 +766,6 @@ mod marketplace {
         use super::*;
         use ink::env::{test, DefaultEnvironment};
 
-        // --- HELPERS ---
         fn set_next_caller(caller: AccountId) {
             test::set_caller::<DefaultEnvironment>(caller);
         }
@@ -793,9 +773,6 @@ mod marketplace {
         fn get_accounts() -> test::DefaultAccounts<DefaultEnvironment> {
             test::default_accounts::<DefaultEnvironment>()
         }
-
-        // ===== TESTS DE REGISTRO =====
-
         /// Test: Registro exitoso de usuario con rol Comprador.
         #[ink::test]
         fn registro_comprador_exitoso() {
@@ -840,7 +817,6 @@ mod marketplace {
             assert_eq!(mp.registrar(Rol::Vendedor), Err(Error::YaRegistrado));
         }
 
-        // ===== TESTS DE MODIFICACIÓN DE ROL =====
 
         /// Test: Modificación exitosa de rol de Comprador a Ambos.
         #[ink::test]
@@ -879,8 +855,6 @@ mod marketplace {
             set_next_caller(accounts.alice);
             assert_eq!(mp.modificar_rol(Rol::Ambos), Err(Error::SinRegistro));
         }
-
-        // ===== TESTS DE PUBLICACIÓN DE PRODUCTOS =====
 
         /// Test: Publicación exitosa de producto por vendedor.
         #[ink::test]
@@ -1100,8 +1074,6 @@ mod marketplace {
             assert_eq!(resultado, Err(Error::ParamInvalido));
         }
 
-        // ===== TESTS DE LISTADO DE PRODUCTOS =====
-
         /// Test: Listar productos de un vendedor.
         #[ink::test]
         fn listar_productos_de_vendedor() {
@@ -1132,8 +1104,6 @@ mod marketplace {
             let productos = mp.listar_productos_de_vendedor(accounts.alice);
             assert_eq!(productos.len(), 0);
         }
-
-        // ===== TESTS DE COMPRA =====
 
         /// Test: Compra exitosa de producto.
         #[ink::test]
@@ -1171,8 +1141,24 @@ mod marketplace {
             mp.registrar(Rol::Vendedor).unwrap();
             let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
 
+            set_next_caller(accounts.charlie);
+            mp.registrar(Rol::Vendedor).unwrap();
             let resultado = mp.comprar(pid, 1);
             assert_eq!(resultado, Err(Error::SinPermiso));
+        }
+
+        /// Test: Error al intentar auto-comprar su propio producto con rol Ambos.
+        #[ink::test]
+        fn comprar_auto_producto_vendedor() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Ambos).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            let resultado = mp.comprar(pid, 1);
+            assert_eq!(resultado, Err(Error::AutoCompraProhibida));
         }
 
         /// Test: Error al comprar sin estar registrado.
@@ -1234,8 +1220,6 @@ mod marketplace {
             assert_eq!(resultado, Err(Error::StockInsuf));
         }
 
-        // ===== TESTS DE LISTADO DE ÓRDENES =====
-
         /// Test: Listar órdenes del comprador que llama.
         #[ink::test]
         fn listar_ordenes_de_comprador() {
@@ -1269,8 +1253,6 @@ mod marketplace {
             let ordenes = mp.listar_ordenes_de_comprador();
             assert_eq!(ordenes.len(), 0);
         }
-
-        // ===== TESTS DE FLUJO DE ÓRDENES =====
 
         /// Test: Marcar orden como enviada exitosamente.
         #[ink::test]
@@ -1398,8 +1380,6 @@ mod marketplace {
             assert_eq!(mp.marcar_enviado(999), Err(Error::OrdenInexistente));
         }
 
-        // ===== TESTS DE OVERFLOW =====
-
         /// Test: Overflow de ID de producto.
         #[ink::test]
         fn overflow_id_producto() {
@@ -1437,8 +1417,6 @@ mod marketplace {
             assert_eq!(mp.comprar(pid, 1), Err(Error::IdOverflow));
         }
 
-        // ===== TESTS DE ROL AMBOS =====
-
         /// Test: Usuario con rol Ambos puede comprar productos de otros vendedores.
         #[ink::test]
         fn rol_ambos_puede_comprar_y_vender() {
@@ -1453,13 +1431,26 @@ mod marketplace {
             mp.registrar(Rol::Ambos).unwrap();
             let pid_bob = mp.publicar("Test Bob".to_string(), "Desc".to_string(), 50, 5, "Cat".to_string()).unwrap();
 
-            // Alice compra el producto de Bob
             set_next_caller(accounts.alice);
             let oid = mp.comprar(pid_bob, 2).unwrap();
             assert_eq!(oid, 1);
 
             let producto = mp.obtener_producto(pid_bob).unwrap();
             assert_eq!(producto.stock, 3);
+        }
+
+        /// Test: Error al auto-comprar con rol Ambos.
+        #[ink::test]
+        fn comprar_propio_producto_rol_ambos() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Ambos).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            let resultado = mp.comprar(pid, 1);
+            assert_eq!(resultado, Err(Error::AutoCompraProhibida));
         }
 
         /// Test: Error al intentar obtener orden sin ser comprador ni vendedor.
@@ -1476,12 +1467,9 @@ mod marketplace {
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 1).unwrap();
 
-            // Charlie intenta acceder a la orden de Alice y Bob
             set_next_caller(accounts.charlie);
             assert_eq!(mp.obtener_orden(oid), Err(Error::SinPermiso));
         }
-
-        // ===== TESTS DE CANCELACIÓN =====
 
         /// Test: Solicitar cancelación exitosamente desde el comprador.
         #[ink::test]
@@ -1497,7 +1485,6 @@ mod marketplace {
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 3).unwrap();
 
-            // Bob solicita cancelación
             assert_eq!(mp.solicitar_cancelacion(oid), Ok(()));
         }
 
@@ -1515,7 +1502,6 @@ mod marketplace {
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 3).unwrap();
 
-            // Alice solicita cancelación
             set_next_caller(accounts.alice);
             assert_eq!(mp.solicitar_cancelacion(oid), Ok(()));
         }
@@ -1534,21 +1520,18 @@ mod marketplace {
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 3).unwrap();
 
-            // Stock debería estar en 7
             assert_eq!(mp.obtener_producto(pid).unwrap().stock, 7);
 
-            // Bob solicita cancelación
             assert_eq!(mp.solicitar_cancelacion(oid), Ok(()));
 
-            // Alice acepta
             set_next_caller(accounts.alice);
             assert_eq!(mp.aceptar_cancelacion(oid), Ok(()));
 
-            // Verificar que la orden esté cancelada
             assert_eq!(mp.obtener_orden(oid).unwrap().estado, Estado::Cancelada);
 
-            // Verificar que el stock se restauró
             assert_eq!(mp.obtener_producto(pid).unwrap().stock, 10);
+
+            assert_eq!(mp.rechazar_cancelacion(oid), Err(Error::CancelacionInexistente));
         }
 
         /// Test: Rechazar cancelación.
@@ -1565,18 +1548,16 @@ mod marketplace {
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 3).unwrap();
 
-            // Bob solicita cancelación
             assert_eq!(mp.solicitar_cancelacion(oid), Ok(()));
 
-            // Alice rechaza
             set_next_caller(accounts.alice);
             assert_eq!(mp.rechazar_cancelacion(oid), Ok(()));
 
-            // Verificar que la orden sigue en Pendiente
             assert_eq!(mp.obtener_orden(oid).unwrap().estado, Estado::Pendiente);
 
-            // Verificar que el stock no cambió
             assert_eq!(mp.obtener_producto(pid).unwrap().stock, 7);
+
+            assert_eq!(mp.rechazar_cancelacion(oid), Err(Error::CancelacionInexistente));
         }
 
         /// Test: Error al solicitar cancelación de orden inexistente.
@@ -1605,7 +1586,6 @@ mod marketplace {
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 1).unwrap();
 
-            // Charlie intenta solicitar cancelación
             set_next_caller(accounts.charlie);
             mp.registrar(Rol::Comprador).unwrap();
             assert_eq!(mp.solicitar_cancelacion(oid), Err(Error::SinPermiso));
@@ -1625,16 +1605,148 @@ mod marketplace {
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 1).unwrap();
 
-            // Alice marca como enviado
             set_next_caller(accounts.alice);
             mp.marcar_enviado(oid).unwrap();
 
-            // Bob marca como recibido
             set_next_caller(accounts.bob);
             mp.marcar_recibido(oid).unwrap();
 
-            // Intentar solicitar cancelación de orden recibida
             assert_eq!(mp.solicitar_cancelacion(oid), Err(Error::EstadoInvalido));
+        }
+
+        /// Test: Error al solicitar cancelación de una orden ya cancelada.
+        #[ink::test]
+        fn solicitar_cancelacion_orden_ya_cancelada() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            mp.solicitar_cancelacion(oid).unwrap();
+            set_next_caller(accounts.alice);
+            mp.aceptar_cancelacion(oid).unwrap();
+
+            set_next_caller(accounts.bob);
+            assert_eq!(mp.solicitar_cancelacion(oid), Err(Error::OrdenCancelada));
+        }
+
+        /// Test: El solicitante intenta aceptar su propia cancelación.
+        #[ink::test]
+        fn solicitante_intenta_aceptar_propia_cancelacion() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            mp.solicitar_cancelacion(oid).unwrap();
+
+            assert_eq!(mp.aceptar_cancelacion(oid), Err(Error::SolicitanteCancelacion));
+        }
+
+        /// Test: El solicitante intenta rechazar su propia cancelación.
+        #[ink::test]
+        fn solicitante_intenta_rechazar_propia_cancelacion() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            mp.solicitar_cancelacion(oid).unwrap();
+            assert_eq!(mp.rechazar_cancelacion(oid), Err(Error::SolicitanteCancelacion));
+        }
+
+        /// Test: Múltiples órdenes del mismo producto por distintos compradores.
+        #[ink::test]
+        fn multiples_ordenes_mismo_producto() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            mp.comprar(pid, 3).unwrap();
+            assert_eq!(mp.obtener_producto(pid).unwrap().stock, 7);
+
+            set_next_caller(accounts.charlie);
+            mp.registrar(Rol::Comprador).unwrap();
+            mp.comprar(pid, 4).unwrap();
+            assert_eq!(mp.obtener_producto(pid).unwrap().stock, 3);
+        }
+
+        /// Test: Error al marcar como recibido una orden inexistente.
+        #[ink::test]
+        fn marcar_recibido_orden_inexistente() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            assert_eq!(mp.marcar_recibido(999), Err(Error::OrdenInexistente));
+        }
+
+        /// Test: Overflow en restauración de stock al aceptar cancelación.
+        #[ink::test]
+        fn cancelacion_overflow_stock() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 1, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            let mut prod = mp.obtener_producto(pid).unwrap();
+            prod.stock = u32::MAX;
+            mp.productos.insert(pid, &prod);
+
+            mp.solicitar_cancelacion(oid).unwrap();
+
+            set_next_caller(accounts.alice);
+            assert_eq!(mp.aceptar_cancelacion(oid), Err(Error::StockOverflow));
+        }
+
+        /// Test: Permisos al marcar como enviado por vendedor distinto al propietario de la orden.
+        #[ink::test]
+        fn marcar_enviado_otro_vendedor_sin_permiso() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            set_next_caller(accounts.charlie);
+            mp.registrar(Rol::Vendedor).unwrap();
+
+            assert_eq!(mp.marcar_enviado(oid), Err(Error::SinPermiso));
         }
 
         /// Test: Error al solicitar cancelación cuando ya existe una pendiente.
@@ -1651,10 +1763,8 @@ mod marketplace {
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 1).unwrap();
 
-            // Primer solicitud
             assert_eq!(mp.solicitar_cancelacion(oid), Ok(()));
 
-            // Segunda solicitud desde el vendedor
             set_next_caller(accounts.alice);
             assert_eq!(mp.solicitar_cancelacion(oid), Err(Error::CancelacionYaPendiente));
         }
@@ -1673,7 +1783,6 @@ mod marketplace {
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 1).unwrap();
 
-            // Intentar aceptar sin solicitud previa
             assert_eq!(mp.aceptar_cancelacion(oid), Err(Error::CancelacionInexistente));
         }
 
@@ -1691,10 +1800,8 @@ mod marketplace {
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 1).unwrap();
 
-            // Bob solicita cancelación
             mp.solicitar_cancelacion(oid).unwrap();
 
-            // Charlie intenta aceptar
             set_next_caller(accounts.charlie);
             mp.registrar(Rol::Comprador).unwrap();
             assert_eq!(mp.aceptar_cancelacion(oid), Err(Error::SinPermiso));
@@ -1714,7 +1821,6 @@ mod marketplace {
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 1).unwrap();
 
-            // Intentar rechazar sin solicitud previa
             assert_eq!(mp.rechazar_cancelacion(oid), Err(Error::CancelacionInexistente));
         }
 
@@ -1732,19 +1838,15 @@ mod marketplace {
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 2).unwrap();
 
-            // Alice marca como enviado
             set_next_caller(accounts.alice);
             mp.marcar_enviado(oid).unwrap();
 
-            // Bob solicita cancelación estando en Enviado
             set_next_caller(accounts.bob);
             assert_eq!(mp.solicitar_cancelacion(oid), Ok(()));
 
-            // Alice acepta
             set_next_caller(accounts.alice);
             assert_eq!(mp.aceptar_cancelacion(oid), Ok(()));
 
-            // Verificar estado y stock
             assert_eq!(mp.obtener_orden(oid).unwrap().estado, Estado::Cancelada);
             assert_eq!(mp.obtener_producto(pid).unwrap().stock, 5);
         }
