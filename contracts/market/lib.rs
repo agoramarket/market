@@ -111,6 +111,36 @@ mod marketplace {
         pub solicitante: AccountId,
     }
 
+    /// Representa la reputación de un usuario en el marketplace.
+    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub struct ReputacionUsuario {
+        /// Reputación como comprador: (suma de calificaciones, cantidad de calificaciones).
+        /// Para obtener el promedio: suma / cantidad
+        /// Ejemplo: (15, 3) = promedio de 5.0 estrellas
+        pub como_comprador: (u32, u32),
+        /// Reputación como vendedor: (suma de calificaciones, cantidad de calificaciones).
+        /// Para obtener el promedio: suma / cantidad
+        /// Ejemplo: (12, 4) = promedio de 3.0 estrellas
+        pub como_vendedor: (u32, u32),
+    }
+
+    /// Representa el estado de calificaciones para una orden.
+    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+    #[cfg_attr(
+        feature = "std",
+        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+    )]
+    pub struct CalificacionOrden {
+        /// Indica si el comprador ya ha calificado al vendedor.
+        pub comprador_califico: bool,
+        /// Indica si el vendedor ya ha calificado al comprador.
+        pub vendedor_califico: bool,
+    }
+
     /// Enumera los posibles errores que pueden ocurrir en el contrato.
     #[derive(Debug, PartialEq, Eq, Encode, Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
@@ -145,6 +175,12 @@ mod marketplace {
         SolicitanteCancelacion,
         /// El stock del producto excedería el valor máximo al intentar restaurarlo (overflow).
         StockOverflow,
+        /// Ya se ha calificado en esta orden.
+        YaCalificado,
+        /// La calificación debe estar entre 1 y 5.
+        CalificacionInvalida,
+        /// Solo se puede calificar si la orden está en estado Recibido.
+        OrdenNoRecibida,
     }
 
     /// La estructura de almacenamiento principal del contrato.
@@ -158,6 +194,10 @@ mod marketplace {
         ordenes: Mapping<u32, Orden>,
         /// Almacena las solicitudes de cancelación pendientes, mapeadas por el ID de orden.
         cancelaciones_pendientes: Mapping<u32, CancelacionPendiente>,
+        /// Almacena la reputación de cada usuario.
+        reputaciones: Mapping<AccountId, ReputacionUsuario>,
+        /// Almacena el estado de calificaciones para cada orden.
+        calificaciones: Mapping<u32, CalificacionOrden>,
         /// El ID que se asignará al próximo producto publicado.
         next_prod_id: u32,
         /// El ID que se asignará a la próxima orden creada.
@@ -184,6 +224,8 @@ mod marketplace {
                 productos: Mapping::default(),
                 ordenes: Mapping::default(),
                 cancelaciones_pendientes: Mapping::default(),
+                reputaciones: Mapping::default(),
+                calificaciones: Mapping::default(),
                 next_prod_id: 1,
                 next_order_id: 1,
             }
@@ -476,6 +518,70 @@ mod marketplace {
             self._rechazar_cancelacion(caller, oid)
         }
 
+        /// Obtiene la reputación de un usuario específico.
+        ///
+        /// # Argumentos
+        ///
+        /// * `usuario` - La `AccountId` del usuario cuya reputación se desea consultar.
+        ///
+        /// # Retorno
+        ///
+        /// Devuelve `Some(ReputacionUsuario)` si el usuario tiene reputación registrada, o `None` en caso contrario.
+        #[ink(message)]
+        pub fn obtener_reputacion(&self, usuario: AccountId) -> Option<ReputacionUsuario> {
+            self.reputaciones.get(usuario)
+        }
+
+        /// Permite al comprador calificar al vendedor de una orden.
+        ///
+        /// Solo el comprador de la orden puede calificar al vendedor.
+        /// La orden debe estar en estado `Recibido`.
+        /// Solo se puede calificar una vez por orden.
+        /// La calificación debe estar entre 1 y 5.
+        ///
+        /// # Argumentos
+        ///
+        /// * `oid` - El ID de la orden a calificar.
+        /// * `puntos` - La calificación (1-5).
+        ///
+        /// # Errores
+        ///
+        /// - `Error::OrdenInexistente` si la orden no existe.
+        /// - `Error::SinPermiso` si el llamante no es el comprador de la orden.
+        /// - `Error::OrdenNoRecibida` si la orden no está en estado Recibido.
+        /// - `Error::YaCalificado` si ya se ha calificado en esta orden.
+        /// - `Error::CalificacionInvalida` si los puntos no están entre 1 y 5.
+        #[ink(message)]
+        pub fn calificar_vendedor(&mut self, oid: u32, puntos: u8) -> Result<(), Error> {
+            let caller = self.env().caller();
+            self._calificar_vendedor(caller, oid, puntos)
+        }
+
+        /// Permite al vendedor calificar al comprador de una orden.
+        ///
+        /// Solo el vendedor de la orden puede calificar al comprador.
+        /// La orden debe estar en estado `Recibido`.
+        /// Solo se puede calificar una vez por orden.
+        /// La calificación debe estar entre 1 y 5.
+        ///
+        /// # Argumentos
+        ///
+        /// * `oid` - El ID de la orden a calificar.
+        /// * `puntos` - La calificación (1-5).
+        ///
+        /// # Errores
+        ///
+        /// - `Error::OrdenInexistente` si la orden no existe.
+        /// - `Error::SinPermiso` si el llamante no es el vendedor de la orden.
+        /// - `Error::OrdenNoRecibida` si la orden no está en estado Recibido.
+        /// - `Error::YaCalificado` si ya se ha calificado en esta orden.
+        /// - `Error::CalificacionInvalida` si los puntos no están entre 1 y 5.
+        #[ink(message)]
+        pub fn calificar_comprador(&mut self, oid: u32, puntos: u8) -> Result<(), Error> {
+            let caller = self.env().caller();
+            self._calificar_comprador(caller, oid, puntos)
+        }
+
         /// Lógica interna para listar productos de un vendedor.
         fn _listar_productos_de_vendedor(&self, vendedor: AccountId) -> Vec<Producto> {
             let mut productos_vendedor = Vec::new();
@@ -586,6 +692,12 @@ mod marketplace {
             };
 
             self.ordenes.insert(oid, &orden);
+            
+            self.calificaciones.insert(oid, &CalificacionOrden {
+                comprador_califico: false,
+                vendedor_califico: false,
+            });
+
             Ok(oid)
         }
 
@@ -758,6 +870,80 @@ mod marketplace {
         fn es_otro_participante(&self, caller: AccountId, orden: &Orden, solicitante: AccountId) -> bool {
             (solicitante == orden.comprador && caller == orden.vendedor) ||
             (solicitante == orden.vendedor && caller == orden.comprador)
+        }
+
+        /// Lógica interna para calificar al vendedor por el comprador.
+        fn _calificar_vendedor(&mut self, caller: AccountId, oid: u32, puntos: u8) -> Result<(), Error> {
+            let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
+            
+            self.ensure(orden.comprador == caller, Error::SinPermiso)?;
+            
+            self.ensure(orden.estado == Estado::Recibido, Error::OrdenNoRecibida)?;
+            
+            self.ensure(puntos >= 1 && puntos <= 5, Error::CalificacionInvalida)?;
+
+            let mut calif = self.calificaciones.get(oid).unwrap_or(CalificacionOrden {
+                comprador_califico: false,
+                vendedor_califico: false,
+            });
+            self.ensure(!calif.comprador_califico, Error::YaCalificado)?;
+            
+            calif.comprador_califico = true;
+            self.calificaciones.insert(oid, &calif);
+
+            let mut rep = self.reputaciones.get(orden.vendedor).unwrap_or(ReputacionUsuario {
+                como_comprador: (0, 0),
+                como_vendedor: (0, 0),
+            });
+            
+            rep.como_vendedor.0 = rep.como_vendedor.0
+                .checked_add(puntos as u32)
+                .ok_or(Error::IdOverflow)?;
+            
+            rep.como_vendedor.1 = rep.como_vendedor.1
+                .checked_add(1)
+                .ok_or(Error::IdOverflow)?;
+            
+            self.reputaciones.insert(orden.vendedor, &rep);
+
+            Ok(())
+        }
+
+        /// Lógica interna para calificar al comprador por el vendedor.
+        fn _calificar_comprador(&mut self, caller: AccountId, oid: u32, puntos: u8) -> Result<(), Error> {
+            let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
+            
+            self.ensure(orden.vendedor == caller, Error::SinPermiso)?;
+            
+            self.ensure(orden.estado == Estado::Recibido, Error::OrdenNoRecibida)?;
+            
+            self.ensure(puntos >= 1 && puntos <= 5, Error::CalificacionInvalida)?;
+
+            let mut calif = self.calificaciones.get(oid).unwrap_or(CalificacionOrden {
+                comprador_califico: false,
+                vendedor_califico: false,
+            });
+            self.ensure(!calif.vendedor_califico, Error::YaCalificado)?;
+            
+            calif.vendedor_califico = true;
+            self.calificaciones.insert(oid, &calif);
+
+            let mut rep = self.reputaciones.get(orden.comprador).unwrap_or(ReputacionUsuario {
+                como_comprador: (0, 0),
+                como_vendedor: (0, 0),
+            });
+            
+            rep.como_comprador.0 = rep.como_comprador.0
+                .checked_add(puntos as u32)
+                .ok_or(Error::IdOverflow)?;
+            
+            rep.como_comprador.1 = rep.como_comprador.1
+                .checked_add(1)
+                .ok_or(Error::IdOverflow)?;
+            
+            self.reputaciones.insert(orden.comprador, &rep);
+
+            Ok(())
         }
     }
 
@@ -1849,6 +2035,388 @@ mod marketplace {
 
             assert_eq!(mp.obtener_orden(oid).unwrap().estado, Estado::Cancelada);
             assert_eq!(mp.obtener_producto(pid).unwrap().stock, 5);
+        }
+
+        /// Test: Obtener reputación de usuario sin calificaciones.
+        #[ink::test]
+        fn obtener_reputacion_sin_calificaciones() {
+            let accounts = get_accounts();
+            let mp = Marketplace::new();
+
+            assert_eq!(mp.obtener_reputacion(accounts.alice), None);
+        }
+
+        /// Test: Calificar vendedor exitosamente.
+        #[ink::test]
+        fn calificar_vendedor_exitoso() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            set_next_caller(accounts.alice);
+            mp.marcar_enviado(oid).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.marcar_recibido(oid).unwrap();
+
+            assert_eq!(mp.calificar_vendedor(oid, 5), Ok(()));
+
+            let rep = mp.obtener_reputacion(accounts.alice).unwrap();
+            assert_eq!(rep.como_vendedor, (5, 1));
+        }
+
+        /// Test: Calificar comprador exitosamente.
+        #[ink::test]
+        fn calificar_comprador_exitoso() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            set_next_caller(accounts.alice);
+            mp.marcar_enviado(oid).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.marcar_recibido(oid).unwrap();
+
+            set_next_caller(accounts.alice);
+            assert_eq!(mp.calificar_comprador(oid, 4), Ok(()));
+
+            let rep = mp.obtener_reputacion(accounts.bob).unwrap();
+            assert_eq!(rep.como_comprador, (4, 1));
+        }
+
+        /// Test: Error al calificar vendedor sin ser el comprador.
+        #[ink::test]
+        fn calificar_vendedor_sin_permiso() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            set_next_caller(accounts.alice);
+            mp.marcar_enviado(oid).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.marcar_recibido(oid).unwrap();
+
+            set_next_caller(accounts.charlie);
+            assert_eq!(mp.calificar_vendedor(oid, 5), Err(Error::SinPermiso));
+        }
+
+        /// Test: Error al calificar comprador sin ser el vendedor.
+        #[ink::test]
+        fn calificar_comprador_sin_permiso() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            set_next_caller(accounts.alice);
+            mp.marcar_enviado(oid).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.marcar_recibido(oid).unwrap();
+
+            set_next_caller(accounts.charlie);
+            assert_eq!(mp.calificar_comprador(oid, 4), Err(Error::SinPermiso));
+        }
+
+        /// Test: Error al calificar orden no recibida.
+        #[ink::test]
+        fn calificar_orden_no_recibida() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            set_next_caller(accounts.alice);
+            mp.marcar_enviado(oid).unwrap();
+
+            set_next_caller(accounts.bob);
+            assert_eq!(mp.calificar_vendedor(oid, 5), Err(Error::OrdenNoRecibida));
+        }
+
+        /// Test: Error al calificar con puntos inválidos.
+        #[ink::test]
+        fn calificar_puntos_invalidos() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            set_next_caller(accounts.alice);
+            mp.marcar_enviado(oid).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.marcar_recibido(oid).unwrap();
+
+            assert_eq!(mp.calificar_vendedor(oid, 0), Err(Error::CalificacionInvalida));
+            assert_eq!(mp.calificar_vendedor(oid, 6), Err(Error::CalificacionInvalida));
+        }
+
+        /// Test: Error al calificar dos veces la misma orden.
+        #[ink::test]
+        fn calificar_dos_veces() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            set_next_caller(accounts.alice);
+            mp.marcar_enviado(oid).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.marcar_recibido(oid).unwrap();
+
+            assert_eq!(mp.calificar_vendedor(oid, 5), Ok(()));
+            assert_eq!(mp.calificar_vendedor(oid, 4), Err(Error::YaCalificado));
+        }
+
+        /// Test: Calificaciones múltiples acumulan correctamente.
+        #[ink::test]
+        fn calificaciones_multiples() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid1 = mp.publicar("Test1".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid2 = mp.publicar("Test2".to_string(), "Desc".to_string(), 200, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid1 = mp.comprar(pid1, 1).unwrap();
+            let oid2 = mp.comprar(pid2, 1).unwrap();
+
+            set_next_caller(accounts.alice);
+            mp.marcar_enviado(oid1).unwrap();
+            mp.marcar_enviado(oid2).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.marcar_recibido(oid1).unwrap();
+            mp.marcar_recibido(oid2).unwrap();
+
+            assert_eq!(mp.calificar_vendedor(oid1, 5), Ok(()));
+            assert_eq!(mp.calificar_vendedor(oid2, 3), Ok(()));
+
+            let rep = mp.obtener_reputacion(accounts.alice).unwrap();
+            assert_eq!(rep.como_vendedor, (8, 2)); // 5 + 3 = 8, count = 2
+        }
+
+        /// Test: Error al calificar orden cancelada.
+        #[ink::test]
+        fn calificar_orden_cancelada() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            mp.solicitar_cancelacion(oid).unwrap();
+            set_next_caller(accounts.alice);
+            mp.aceptar_cancelacion(oid).unwrap();
+
+            set_next_caller(accounts.bob);
+            assert_eq!(mp.calificar_vendedor(oid, 5), Err(Error::OrdenNoRecibida));
+        }
+
+        /// Test: Calificar orden inexistente.
+        #[ink::test]
+        fn calificar_vendedor_orden_inexistente() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.bob);
+            assert_eq!(mp.calificar_vendedor(999, 5), Err(Error::OrdenInexistente));
+        }
+
+        /// Test: Calificar comprador orden inexistente.
+        #[ink::test]
+        fn calificar_comprador_orden_inexistente() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            assert_eq!(mp.calificar_comprador(999, 4), Err(Error::OrdenInexistente));
+        }
+
+        /// Test: Ambas partes califican exitosamente.
+        #[ink::test]
+        fn calificacion_bidireccional_completa() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            set_next_caller(accounts.alice);
+            mp.marcar_enviado(oid).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.marcar_recibido(oid).unwrap();
+
+            assert_eq!(mp.calificar_vendedor(oid, 5), Ok(()));
+
+            set_next_caller(accounts.alice);
+            assert_eq!(mp.calificar_comprador(oid, 4), Ok(()));
+
+            let rep_vendedor = mp.obtener_reputacion(accounts.alice).unwrap();
+            assert_eq!(rep_vendedor.como_vendedor, (5, 1));
+
+            let rep_comprador = mp.obtener_reputacion(accounts.bob).unwrap();
+            assert_eq!(rep_comprador.como_comprador, (4, 1));
+        }
+
+        /// Test: Error al calificar en estado Pendiente.
+        #[ink::test]
+        fn calificar_orden_pendiente() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            assert_eq!(mp.calificar_vendedor(oid, 5), Err(Error::OrdenNoRecibida));
+        }
+
+        /// Test: Error al calificar en estado Enviado.
+        #[ink::test]
+        fn calificar_orden_enviado() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            set_next_caller(accounts.alice);
+            mp.marcar_enviado(oid).unwrap();
+
+            set_next_caller(accounts.bob);
+            assert_eq!(mp.calificar_vendedor(oid, 5), Err(Error::OrdenNoRecibida));
+        }
+
+        /// Test: Overflow en reputación (simulado).
+        #[ink::test]
+        fn overflow_reputacion() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            set_next_caller(accounts.alice);
+            mp.marcar_enviado(oid).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.marcar_recibido(oid).unwrap();
+
+            let mut rep = mp.reputaciones.get(accounts.alice).unwrap_or(ReputacionUsuario {
+                como_comprador: (0, 0),
+                como_vendedor: (u32::MAX - 2, 1),
+            });
+            rep.como_vendedor = (u32::MAX - 2, 1);
+            mp.reputaciones.insert(accounts.alice, &rep);
+
+            assert_eq!(mp.calificar_vendedor(oid, 5), Err(Error::IdOverflow));
+        }
+
+        /// Test: Overflow en cantidad de calificaciones.
+        #[ink::test]
+        fn overflow_cantidad_calificaciones() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 1).unwrap();
+
+            set_next_caller(accounts.alice);
+            mp.marcar_enviado(oid).unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.marcar_recibido(oid).unwrap();
+
+            let mut rep = mp.reputaciones.get(accounts.alice).unwrap_or(ReputacionUsuario {
+                como_comprador: (0, 0),
+                como_vendedor: (10, u32::MAX),
+            });
+            rep.como_vendedor = (10, u32::MAX);
+            mp.reputaciones.insert(accounts.alice, &rep);
+
+            assert_eq!(mp.calificar_vendedor(oid, 5), Err(Error::IdOverflow));
         }
     }
 }
