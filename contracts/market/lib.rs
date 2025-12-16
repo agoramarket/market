@@ -141,6 +141,11 @@ mod marketplace {
         pub vendedor_califico: bool,
     }
 
+    /// Límites de longitud para strings en el contrato.
+    const MAX_NOMBRE_LEN: usize = 64;
+    const MAX_DESCRIPCION_LEN: usize = 256;
+    const MAX_CATEGORIA_LEN: usize = 32;
+
     /// Enumera los posibles errores que pueden ocurrir en el contrato.
     #[derive(Debug, PartialEq, Eq, Encode, Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
@@ -413,7 +418,10 @@ mod marketplace {
         pub fn obtener_orden(&self, id: u32) -> Result<Orden, Error> {
             let caller = self.env().caller();
             let orden = self.ordenes.get(id).ok_or(Error::OrdenInexistente)?;
-            self.ensure(orden.comprador == caller || orden.vendedor == caller, Error::SinPermiso)?;
+            self.ensure(
+                orden.comprador == caller || orden.vendedor == caller,
+                Error::SinPermiso,
+            )?;
             Ok(orden)
         }
 
@@ -593,10 +601,10 @@ mod marketplace {
                     }
                 }
             }
-            
+
             productos_vendedor
         }
-        
+
         /// Lógica interna para listar órdenes de un comprador.
         fn _listar_ordenes_de_comprador(&self, comprador: AccountId) -> Vec<Orden> {
             let mut ordenes_comprador = Vec::new();
@@ -608,7 +616,7 @@ mod marketplace {
                     }
                 }
             }
-            
+
             ordenes_comprador
         }
 
@@ -639,10 +647,14 @@ mod marketplace {
             let rol_vendedor = self.rol_de(vendedor)?;
             self.ensure(rol_vendedor.es_vendedor(), Error::SinPermiso)?;
             self.ensure(
-                precio > 0 && stock > 0 
-                && !nombre.is_empty() && nombre.len() <= 64 
-                && !descripcion.is_empty() && descripcion.len() <= 256 
-                && !categoria.is_empty() && categoria.len() <= 32,
+                precio > 0
+                    && stock > 0
+                    && !nombre.is_empty()
+                    && nombre.len() <= MAX_NOMBRE_LEN
+                    && !descripcion.is_empty()
+                    && descripcion.len() <= MAX_DESCRIPCION_LEN
+                    && !categoria.is_empty()
+                    && categoria.len() <= MAX_CATEGORIA_LEN,
                 Error::ParamInvalido,
             )?;
 
@@ -677,7 +689,8 @@ mod marketplace {
             self.ensure(producto.vendedor != comprador, Error::AutoCompraProhibida)?;
             self.ensure(producto.stock >= cant, Error::StockInsuf)?;
 
-            producto.stock = producto.stock.checked_sub(cant).ok_or(Error::StockInsuf)?;
+            // Stock ya fue validado, se puede restar directamente
+            producto.stock -= cant;
             self.productos.insert(id_prod, &producto);
 
             let oid = self.next_order_id;
@@ -692,11 +705,14 @@ mod marketplace {
             };
 
             self.ordenes.insert(oid, &orden);
-            
-            self.calificaciones.insert(oid, &CalificacionOrden {
-                comprador_califico: false,
-                vendedor_califico: false,
-            });
+
+            self.calificaciones.insert(
+                oid,
+                &CalificacionOrden {
+                    comprador_califico: false,
+                    vendedor_califico: false,
+                },
+            );
 
             Ok(oid)
         }
@@ -705,7 +721,11 @@ mod marketplace {
         fn _marcar_enviado(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let mut orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             self.ensure(orden.vendedor == caller, Error::SinPermiso)?;
-            self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
+            
+            // Verificar primero si está cancelada antes de verificar el estado específico
+            if orden.estado == Estado::Cancelada {
+                return Err(Error::OrdenCancelada);
+            }
             self.ensure(orden.estado == Estado::Pendiente, Error::EstadoInvalido)?;
 
             orden.estado = Estado::Enviado;
@@ -717,7 +737,11 @@ mod marketplace {
         fn _marcar_recibido(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let mut orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             self.ensure(orden.comprador == caller, Error::SinPermiso)?;
-            self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
+            
+            // Verificar primero si está cancelada antes de verificar el estado específico
+            if orden.estado == Estado::Cancelada {
+                return Err(Error::OrdenCancelada);
+            }
             self.ensure(orden.estado == Estado::Enviado, Error::EstadoInvalido)?;
 
             orden.estado = Estado::Recibido;
@@ -728,19 +752,19 @@ mod marketplace {
         /// Lógica interna para solicitar la cancelación de una orden.
         fn _solicitar_cancelacion(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
-            
+
             self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
-            
+
             self.ensure(
                 caller == orden.comprador || caller == orden.vendedor,
                 Error::SinPermiso,
             )?;
-            
+
             self.ensure(
                 orden.estado == Estado::Pendiente || orden.estado == Estado::Enviado,
                 Error::EstadoInvalido,
             )?;
-            
+
             self.ensure(
                 !self.cancelaciones_pendientes.contains(oid),
                 Error::CancelacionYaPendiente,
@@ -756,62 +780,67 @@ mod marketplace {
 
         /// Lógica interna para aceptar la cancelación de una orden.
         fn _aceptar_cancelacion(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
-            let cancelacion = self.cancelaciones_pendientes
+            let cancelacion = self
+                .cancelaciones_pendientes
                 .get(oid)
                 .ok_or(Error::CancelacionInexistente)?;
-            
+
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
-            
+
             self.ensure(
                 caller != cancelacion.solicitante,
-                Error::SolicitanteCancelacion
+                Error::SolicitanteCancelacion,
             )?;
-            
+
             self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
-            
+
             self.ensure(
                 self.es_otro_participante(caller, &orden, cancelacion.solicitante),
-                Error::SinPermiso
+                Error::SinPermiso,
             )?;
-            
-            let mut producto = self.productos.get(orden.id_prod)
+
+            let mut producto = self
+                .productos
+                .get(orden.id_prod)
                 .ok_or(Error::ProdInexistente)?;
-            producto.stock = producto.stock
+            producto.stock = producto
+                .stock
                 .checked_add(orden.cantidad)
                 .ok_or(Error::StockOverflow)?;
             self.productos.insert(orden.id_prod, &producto);
-            
+
             let mut orden_mut = orden.clone();
             orden_mut.estado = Estado::Cancelada;
             self.ordenes.insert(oid, &orden_mut);
-            
+
             self.cancelaciones_pendientes.remove(oid);
-            
+
             Ok(())
         }
 
         /// Lógica interna para rechazar la cancelación de una orden.
         fn _rechazar_cancelacion(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
-            let cancelacion = self.cancelaciones_pendientes
+            let cancelacion = self
+                .cancelaciones_pendientes
                 .get(oid)
                 .ok_or(Error::CancelacionInexistente)?;
-            
+
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
-            
+
             self.ensure(
                 caller != cancelacion.solicitante,
-                Error::SolicitanteCancelacion
+                Error::SolicitanteCancelacion,
             )?;
-            
+
             self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
-            
+
             self.ensure(
                 self.es_otro_participante(caller, &orden, cancelacion.solicitante),
-                Error::SinPermiso
+                Error::SinPermiso,
             )?;
-            
+
             self.cancelaciones_pendientes.remove(oid);
-            
+
             Ok(())
         }
 
@@ -867,19 +896,29 @@ mod marketplace {
         /// # Retorno
         ///
         /// Devuelve `true` si el caller es el otro participante, `false` en caso contrario.
-        fn es_otro_participante(&self, caller: AccountId, orden: &Orden, solicitante: AccountId) -> bool {
-            (solicitante == orden.comprador && caller == orden.vendedor) ||
-            (solicitante == orden.vendedor && caller == orden.comprador)
+        fn es_otro_participante(
+            &self,
+            caller: AccountId,
+            orden: &Orden,
+            solicitante: AccountId,
+        ) -> bool {
+            (solicitante == orden.comprador && caller == orden.vendedor)
+                || (solicitante == orden.vendedor && caller == orden.comprador)
         }
 
         /// Lógica interna para calificar al vendedor por el comprador.
-        fn _calificar_vendedor(&mut self, caller: AccountId, oid: u32, puntos: u8) -> Result<(), Error> {
+        fn _calificar_vendedor(
+            &mut self,
+            caller: AccountId,
+            oid: u32,
+            puntos: u8,
+        ) -> Result<(), Error> {
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
-            
+
             self.ensure(orden.comprador == caller, Error::SinPermiso)?;
-            
+
             self.ensure(orden.estado == Estado::Recibido, Error::OrdenNoRecibida)?;
-            
+
             self.ensure(puntos >= 1 && puntos <= 5, Error::CalificacionInvalida)?;
 
             let mut calif = self.calificaciones.get(oid).unwrap_or(CalificacionOrden {
@@ -887,36 +926,48 @@ mod marketplace {
                 vendedor_califico: false,
             });
             self.ensure(!calif.comprador_califico, Error::YaCalificado)?;
-            
+
             calif.comprador_califico = true;
             self.calificaciones.insert(oid, &calif);
 
-            let mut rep = self.reputaciones.get(orden.vendedor).unwrap_or(ReputacionUsuario {
-                como_comprador: (0, 0),
-                como_vendedor: (0, 0),
-            });
-            
-            rep.como_vendedor.0 = rep.como_vendedor.0
+            let mut rep = self
+                .reputaciones
+                .get(orden.vendedor)
+                .unwrap_or(ReputacionUsuario {
+                    como_comprador: (0, 0),
+                    como_vendedor: (0, 0),
+                });
+
+            rep.como_vendedor.0 = rep
+                .como_vendedor
+                .0
                 .checked_add(puntos as u32)
                 .ok_or(Error::IdOverflow)?;
-            
-            rep.como_vendedor.1 = rep.como_vendedor.1
+
+            rep.como_vendedor.1 = rep
+                .como_vendedor
+                .1
                 .checked_add(1)
                 .ok_or(Error::IdOverflow)?;
-            
+
             self.reputaciones.insert(orden.vendedor, &rep);
 
             Ok(())
         }
 
         /// Lógica interna para calificar al comprador por el vendedor.
-        fn _calificar_comprador(&mut self, caller: AccountId, oid: u32, puntos: u8) -> Result<(), Error> {
+        fn _calificar_comprador(
+            &mut self,
+            caller: AccountId,
+            oid: u32,
+            puntos: u8,
+        ) -> Result<(), Error> {
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
-            
+
             self.ensure(orden.vendedor == caller, Error::SinPermiso)?;
-            
+
             self.ensure(orden.estado == Estado::Recibido, Error::OrdenNoRecibida)?;
-            
+
             self.ensure(puntos >= 1 && puntos <= 5, Error::CalificacionInvalida)?;
 
             let mut calif = self.calificaciones.get(oid).unwrap_or(CalificacionOrden {
@@ -924,23 +975,30 @@ mod marketplace {
                 vendedor_califico: false,
             });
             self.ensure(!calif.vendedor_califico, Error::YaCalificado)?;
-            
+
             calif.vendedor_califico = true;
             self.calificaciones.insert(oid, &calif);
 
-            let mut rep = self.reputaciones.get(orden.comprador).unwrap_or(ReputacionUsuario {
-                como_comprador: (0, 0),
-                como_vendedor: (0, 0),
-            });
-            
-            rep.como_comprador.0 = rep.como_comprador.0
+            let mut rep = self
+                .reputaciones
+                .get(orden.comprador)
+                .unwrap_or(ReputacionUsuario {
+                    como_comprador: (0, 0),
+                    como_vendedor: (0, 0),
+                });
+
+            rep.como_comprador.0 = rep
+                .como_comprador
+                .0
                 .checked_add(puntos as u32)
                 .ok_or(Error::IdOverflow)?;
-            
-            rep.como_comprador.1 = rep.como_comprador.1
+
+            rep.como_comprador.1 = rep
+                .como_comprador
+                .1
                 .checked_add(1)
                 .ok_or(Error::IdOverflow)?;
-            
+
             self.reputaciones.insert(orden.comprador, &rep);
 
             Ok(())
@@ -1002,7 +1060,6 @@ mod marketplace {
             mp.registrar(Rol::Comprador).unwrap();
             assert_eq!(mp.registrar(Rol::Vendedor), Err(Error::YaRegistrado));
         }
-
 
         /// Test: Modificación exitosa de rol de Comprador a Ambos.
         #[ink::test]
@@ -1153,13 +1210,8 @@ mod marketplace {
             mp.registrar(Rol::Vendedor).unwrap();
 
             let nombre_largo = "a".repeat(65);
-            let resultado = mp.publicar(
-                nombre_largo,
-                "Desc".to_string(),
-                100,
-                5,
-                "Cat".to_string(),
-            );
+            let resultado =
+                mp.publicar(nombre_largo, "Desc".to_string(), 100, 5, "Cat".to_string());
             assert_eq!(resultado, Err(Error::ParamInvalido));
         }
 
@@ -1269,8 +1321,22 @@ mod marketplace {
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
 
-            mp.publicar("Producto1".to_string(), "Desc1".to_string(), 100, 5, "Cat1".to_string()).unwrap();
-            mp.publicar("Producto2".to_string(), "Desc2".to_string(), 200, 10, "Cat2".to_string()).unwrap();
+            mp.publicar(
+                "Producto1".to_string(),
+                "Desc1".to_string(),
+                100,
+                5,
+                "Cat1".to_string(),
+            )
+            .unwrap();
+            mp.publicar(
+                "Producto2".to_string(),
+                "Desc2".to_string(),
+                200,
+                10,
+                "Cat2".to_string(),
+            )
+            .unwrap();
 
             let productos = mp.listar_productos_de_vendedor(accounts.alice);
             assert_eq!(productos.len(), 2);
@@ -1299,7 +1365,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1325,7 +1399,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.charlie);
             mp.registrar(Rol::Vendedor).unwrap();
@@ -1341,7 +1423,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Ambos).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             let resultado = mp.comprar(pid, 1);
             assert_eq!(resultado, Err(Error::AutoCompraProhibida));
@@ -1355,7 +1445,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             let resultado = mp.comprar(pid, 1);
@@ -1370,7 +1468,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1398,7 +1504,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 5, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    5,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1414,7 +1528,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1448,7 +1570,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1467,7 +1597,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1489,7 +1627,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1506,7 +1652,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1526,7 +1680,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1543,7 +1705,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1594,7 +1764,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 5, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    5,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1611,11 +1789,27 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Ambos).unwrap();
-            let _pid_alice = mp.publicar("Test Alice".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let _pid_alice = mp
+                .publicar(
+                    "Test Alice".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Ambos).unwrap();
-            let pid_bob = mp.publicar("Test Bob".to_string(), "Desc".to_string(), 50, 5, "Cat".to_string()).unwrap();
+            let pid_bob = mp
+                .publicar(
+                    "Test Bob".to_string(),
+                    "Desc".to_string(),
+                    50,
+                    5,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.alice);
             let oid = mp.comprar(pid_bob, 2).unwrap();
@@ -1633,7 +1827,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Ambos).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             let resultado = mp.comprar(pid, 1);
             assert_eq!(resultado, Err(Error::AutoCompraProhibida));
@@ -1647,7 +1849,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1665,7 +1875,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1682,7 +1900,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1700,7 +1926,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1717,7 +1951,10 @@ mod marketplace {
 
             assert_eq!(mp.obtener_producto(pid).unwrap().stock, 10);
 
-            assert_eq!(mp.rechazar_cancelacion(oid), Err(Error::CancelacionInexistente));
+            assert_eq!(
+                mp.rechazar_cancelacion(oid),
+                Err(Error::CancelacionInexistente)
+            );
         }
 
         /// Test: Rechazar cancelación.
@@ -1728,7 +1965,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1743,7 +1988,10 @@ mod marketplace {
 
             assert_eq!(mp.obtener_producto(pid).unwrap().stock, 7);
 
-            assert_eq!(mp.rechazar_cancelacion(oid), Err(Error::CancelacionInexistente));
+            assert_eq!(
+                mp.rechazar_cancelacion(oid),
+                Err(Error::CancelacionInexistente)
+            );
         }
 
         /// Test: Error al solicitar cancelación de orden inexistente.
@@ -1766,7 +2014,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1785,7 +2041,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1808,7 +2072,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1830,7 +2102,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1838,7 +2118,10 @@ mod marketplace {
 
             mp.solicitar_cancelacion(oid).unwrap();
 
-            assert_eq!(mp.aceptar_cancelacion(oid), Err(Error::SolicitanteCancelacion));
+            assert_eq!(
+                mp.aceptar_cancelacion(oid),
+                Err(Error::SolicitanteCancelacion)
+            );
         }
 
         /// Test: El solicitante intenta rechazar su propia cancelación.
@@ -1849,14 +2132,25 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 1).unwrap();
 
             mp.solicitar_cancelacion(oid).unwrap();
-            assert_eq!(mp.rechazar_cancelacion(oid), Err(Error::SolicitanteCancelacion));
+            assert_eq!(
+                mp.rechazar_cancelacion(oid),
+                Err(Error::SolicitanteCancelacion)
+            );
         }
 
         /// Test: Múltiples órdenes del mismo producto por distintos compradores.
@@ -1867,7 +2161,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1899,7 +2201,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 1, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    1,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1923,7 +2233,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1943,7 +2261,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -1952,7 +2278,10 @@ mod marketplace {
             assert_eq!(mp.solicitar_cancelacion(oid), Ok(()));
 
             set_next_caller(accounts.alice);
-            assert_eq!(mp.solicitar_cancelacion(oid), Err(Error::CancelacionYaPendiente));
+            assert_eq!(
+                mp.solicitar_cancelacion(oid),
+                Err(Error::CancelacionYaPendiente)
+            );
         }
 
         /// Test: Error al aceptar cancelación inexistente.
@@ -1963,13 +2292,24 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 1).unwrap();
 
-            assert_eq!(mp.aceptar_cancelacion(oid), Err(Error::CancelacionInexistente));
+            assert_eq!(
+                mp.aceptar_cancelacion(oid),
+                Err(Error::CancelacionInexistente)
+            );
         }
 
         /// Test: Error al aceptar cancelación sin ser el otro participante.
@@ -1980,7 +2320,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2001,13 +2349,24 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
             let oid = mp.comprar(pid, 1).unwrap();
 
-            assert_eq!(mp.rechazar_cancelacion(oid), Err(Error::CancelacionInexistente));
+            assert_eq!(
+                mp.rechazar_cancelacion(oid),
+                Err(Error::CancelacionInexistente)
+            );
         }
 
         /// Test: Flujo completo de cancelación en estado Enviado.
@@ -2018,7 +2377,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 5, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    5,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2054,7 +2421,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2080,7 +2455,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2107,7 +2490,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2131,7 +2522,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2155,7 +2554,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2176,7 +2583,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2188,8 +2603,14 @@ mod marketplace {
             set_next_caller(accounts.bob);
             mp.marcar_recibido(oid).unwrap();
 
-            assert_eq!(mp.calificar_vendedor(oid, 0), Err(Error::CalificacionInvalida));
-            assert_eq!(mp.calificar_vendedor(oid, 6), Err(Error::CalificacionInvalida));
+            assert_eq!(
+                mp.calificar_vendedor(oid, 0),
+                Err(Error::CalificacionInvalida)
+            );
+            assert_eq!(
+                mp.calificar_vendedor(oid, 6),
+                Err(Error::CalificacionInvalida)
+            );
         }
 
         /// Test: Error al calificar dos veces la misma orden.
@@ -2200,7 +2621,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2224,8 +2653,24 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid1 = mp.publicar("Test1".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
-            let pid2 = mp.publicar("Test2".to_string(), "Desc".to_string(), 200, 10, "Cat".to_string()).unwrap();
+            let pid1 = mp
+                .publicar(
+                    "Test1".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
+            let pid2 = mp
+                .publicar(
+                    "Test2".to_string(),
+                    "Desc".to_string(),
+                    200,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2255,7 +2700,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2297,7 +2750,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2329,7 +2790,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2346,7 +2815,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2367,7 +2844,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2379,10 +2864,13 @@ mod marketplace {
             set_next_caller(accounts.bob);
             mp.marcar_recibido(oid).unwrap();
 
-            let mut rep = mp.reputaciones.get(accounts.alice).unwrap_or(ReputacionUsuario {
-                como_comprador: (0, 0),
-                como_vendedor: (u32::MAX - 2, 1),
-            });
+            let mut rep = mp
+                .reputaciones
+                .get(accounts.alice)
+                .unwrap_or(ReputacionUsuario {
+                    como_comprador: (0, 0),
+                    como_vendedor: (u32::MAX - 2, 1),
+                });
             rep.como_vendedor = (u32::MAX - 2, 1);
             mp.reputaciones.insert(accounts.alice, &rep);
 
@@ -2397,7 +2885,15 @@ mod marketplace {
 
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Vendedor).unwrap();
-            let pid = mp.publicar("Test".to_string(), "Desc".to_string(), 100, 10, "Cat".to_string()).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    10,
+                    "Cat".to_string(),
+                )
+                .unwrap();
 
             set_next_caller(accounts.bob);
             mp.registrar(Rol::Comprador).unwrap();
@@ -2409,10 +2905,13 @@ mod marketplace {
             set_next_caller(accounts.bob);
             mp.marcar_recibido(oid).unwrap();
 
-            let mut rep = mp.reputaciones.get(accounts.alice).unwrap_or(ReputacionUsuario {
-                como_comprador: (0, 0),
-                como_vendedor: (10, u32::MAX),
-            });
+            let mut rep = mp
+                .reputaciones
+                .get(accounts.alice)
+                .unwrap_or(ReputacionUsuario {
+                    como_comprador: (0, 0),
+                    como_vendedor: (10, u32::MAX),
+                });
             rep.como_vendedor = (10, u32::MAX);
             mp.reputaciones.insert(accounts.alice, &rep);
 
