@@ -689,7 +689,6 @@ mod marketplace {
             self.ensure(producto.vendedor != comprador, Error::AutoCompraProhibida)?;
             self.ensure(producto.stock >= cant, Error::StockInsuf)?;
 
-            // Stock ya fue validado, se puede restar directamente
             producto.stock -= cant;
             self.productos.insert(id_prod, &producto);
 
@@ -721,8 +720,7 @@ mod marketplace {
         fn _marcar_enviado(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let mut orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             self.ensure(orden.vendedor == caller, Error::SinPermiso)?;
-            
-            // Verificar primero si está cancelada antes de verificar el estado específico
+
             if orden.estado == Estado::Cancelada {
                 return Err(Error::OrdenCancelada);
             }
@@ -737,8 +735,7 @@ mod marketplace {
         fn _marcar_recibido(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let mut orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             self.ensure(orden.comprador == caller, Error::SinPermiso)?;
-            
-            // Verificar primero si está cancelada antes de verificar el estado específico
+
             if orden.estado == Estado::Cancelada {
                 return Err(Error::OrdenCancelada);
             }
@@ -746,6 +743,11 @@ mod marketplace {
 
             orden.estado = Estado::Recibido;
             self.ordenes.insert(oid, &orden);
+
+            if self.cancelaciones_pendientes.contains(oid) {
+                self.cancelaciones_pendientes.remove(oid);
+            }
+
             Ok(())
         }
 
@@ -787,12 +789,17 @@ mod marketplace {
 
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
 
+            self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
+
+            self.ensure(
+                orden.estado == Estado::Pendiente || orden.estado == Estado::Enviado,
+                Error::EstadoInvalido,
+            )?;
+
             self.ensure(
                 caller != cancelacion.solicitante,
                 Error::SolicitanteCancelacion,
             )?;
-
-            self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
 
             self.ensure(
                 self.es_otro_participante(caller, &orden, cancelacion.solicitante),
@@ -827,12 +834,17 @@ mod marketplace {
 
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
 
+            self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
+
+            self.ensure(
+                orden.estado == Estado::Pendiente || orden.estado == Estado::Enviado,
+                Error::EstadoInvalido,
+            )?;
+
             self.ensure(
                 caller != cancelacion.solicitante,
                 Error::SolicitanteCancelacion,
             )?;
-
-            self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
 
             self.ensure(
                 self.es_otro_participante(caller, &orden, cancelacion.solicitante),
