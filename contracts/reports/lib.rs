@@ -1,17 +1,1090 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 
+/// Ágora Marketplace - Contrato de Reportes
+///
+/// Este contrato proporciona funcionalidades de solo lectura para generar
+/// reportes y estadísticas a partir de los datos del contrato Marketplace.
+///
+/// ## Funcionalidades
+/// - Top 5 vendedores con mejor reputación
+/// - Top 5 compradores con mejor reputación
+/// - Productos más vendidos
+/// - Estadísticas por categoría
+/// - Cantidad de órdenes por usuario
+///
+/// ## Nota importante
+/// Este contrato es de solo lectura y no puede modificar el estado del Marketplace.
 #[ink::contract]
-mod reports {
-    #[ink(storage)]
-    pub struct Reports {}
+mod reportes {
+    use ink::prelude::string::String;
+    use ink::prelude::vec::Vec;
+    use scale::{Decode, Encode};
 
-    impl Reports {
+    use market::{Estado, MarketplaceRef};
+
+    /// Representa un usuario con su reputación calculada.
+    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct UsuarioConReputacion {
+        /// La cuenta del usuario.
+        pub usuario: AccountId,
+        /// Promedio de reputación multiplicado por 100 para evitar decimales.
+        /// Ejemplo: 450 = 4.50 estrellas
+        pub promedio_x100: u32,
+        /// Cantidad de calificaciones recibidas.
+        pub cantidad_calificaciones: u32,
+    }
+
+    /// Representa un producto con su cantidad total vendida.
+    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct ProductoVendido {
+        /// El ID del producto.
+        pub id_producto: u32,
+        /// El nombre del producto.
+        pub nombre: String,
+        /// La categoría del producto.
+        pub categoria: String,
+        /// El vendedor del producto.
+        pub vendedor: AccountId,
+        /// Cantidad total de unidades vendidas.
+        pub unidades_vendidas: u32,
+    }
+
+    /// Estadísticas agregadas por categoría.
+    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct EstadisticasCategoria {
+        /// Nombre de la categoría.
+        pub categoria: String,
+        /// Total de ventas (órdenes completadas) en esta categoría.
+        pub total_ventas: u32,
+        /// Total de unidades vendidas en esta categoría.
+        pub total_unidades: u32,
+        /// Promedio de calificación de vendedores en esta categoría (x100).
+        pub calificacion_promedio_x100: u32,
+        /// Cantidad de productos publicados en esta categoría.
+        pub cantidad_productos: u32,
+    }
+
+    /// Información sobre las órdenes de un usuario.
+    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct OrdenesUsuario {
+        /// La cuenta del usuario.
+        pub usuario: AccountId,
+        /// Cantidad de órdenes como comprador.
+        pub ordenes_como_comprador: u32,
+        /// Cantidad de órdenes como vendedor.
+        pub ordenes_como_vendedor: u32,
+        /// Cantidad de órdenes completadas como comprador.
+        pub completadas_como_comprador: u32,
+        /// Cantidad de órdenes completadas como vendedor.
+        pub completadas_como_vendedor: u32,
+    }
+
+    /// Errores posibles del contrato de reportes.
+    #[derive(Debug, PartialEq, Eq, Encode, Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum Error {
+        /// La categoría especificada no existe.
+        CategoriaNoEncontrada,
+    }
+
+    #[ink(storage)]
+    pub struct Reportes {
+        marketplace_address: AccountId,
+    }
+
+    impl Reportes {
+        /// Crea una nueva instancia del contrato de Reportes.
+        ///
+        /// # Argumentos
+        ///
+        /// * `marketplace_address` - La dirección del contrato Marketplace del cual se leerán los datos.
+        ///
+        /// # Nota
+        ///
+        /// Este contrato es de solo lectura y requiere que el contrato Marketplace
+        /// esté desplegado previamente en la red.
         #[ink(constructor)]
-        pub fn new() -> Self {
-            Self {}
+        pub fn new(marketplace_address: AccountId) -> Self {
+            Self {
+                marketplace_address,
+            }
         }
 
+        /// Obtiene la dirección del contrato Marketplace asociado.
+        ///
+        /// # Retorno
+        ///
+        /// Devuelve el `AccountId` del contrato Marketplace del cual se obtienen los datos.
         #[ink(message)]
-        pub fn get(&self) {}
+        pub fn get_marketplace(&self) -> AccountId {
+            self.marketplace_address
+        }
+
+        /// Obtiene el top N de vendedores con mejor reputación.
+        ///
+        /// # Argumentos
+        ///
+        /// * `limite` - Cantidad máxima de vendedores a retornar (ej: 5 para top 5).
+        ///
+        /// # Retorno
+        ///
+        /// Lista ordenada de vendedores por reputación descendente.
+        /// En caso de empate en promedio, se ordena por cantidad de calificaciones.
+        ///
+        /// # Nota
+        ///
+        /// Solo incluye vendedores que tienen al menos una calificación.
+        #[ink(message)]
+        pub fn top_vendedores(&self, limite: u32) -> Vec<UsuarioConReputacion> {
+            self._top_vendedores(limite)
+        }
+
+        /// Obtiene el top N de compradores con mejor reputación.
+        ///
+        /// # Argumentos
+        ///
+        /// * `limite` - Cantidad máxima de compradores a retornar (ej: 5 para top 5).
+        ///
+        /// # Retorno
+        ///
+        /// Lista ordenada de compradores por reputación descendente.
+        /// En caso de empate en promedio, se ordena por cantidad de calificaciones.
+        ///
+        /// # Nota
+        ///
+        /// Solo incluye compradores que tienen al menos una calificación.
+        #[ink(message)]
+        pub fn top_compradores(&self, limite: u32) -> Vec<UsuarioConReputacion> {
+            self._top_compradores(limite)
+        }
+
+        /// Obtiene los productos más vendidos del marketplace.
+        ///
+        /// # Argumentos
+        ///
+        /// * `limite` - Cantidad máxima de productos a retornar.
+        ///
+        /// # Retorno
+        ///
+        /// Lista de productos ordenada por unidades vendidas (descendente).
+        /// Incluye información del producto, categoría y vendedor.
+        ///
+        /// # Nota
+        ///
+        /// Se consideran todas las órdenes excepto las canceladas.
+        #[ink(message)]
+        pub fn productos_mas_vendidos(&self, limite: u32) -> Vec<ProductoVendido> {
+            self._productos_mas_vendidos(limite)
+        }
+
+        /// Obtiene estadísticas agregadas de todas las categorías.
+        ///
+        /// # Retorno
+        ///
+        /// Lista de estadísticas por cada categoría existente, incluyendo:
+        /// - Total de ventas completadas
+        /// - Total de unidades vendidas
+        /// - Calificación promedio de vendedores (x100)
+        /// - Cantidad de productos publicados
+        ///
+        /// # Nota
+        ///
+        /// Solo se consideran órdenes en estado `Recibido` para las ventas.
+        #[ink(message)]
+        pub fn estadisticas_por_categoria(&self) -> Vec<EstadisticasCategoria> {
+            self._estadisticas_por_categoria()
+        }
+
+        /// Obtiene las estadísticas de una categoría específica.
+        ///
+        /// # Argumentos
+        ///
+        /// * `categoria` - Nombre exacto de la categoría a consultar.
+        ///
+        /// # Retorno
+        ///
+        /// - `Ok(EstadisticasCategoria)` con las estadísticas de la categoría.
+        /// - `Err(Error::CategoriaNoEncontrada)` si la categoría no existe.
+        #[ink(message)]
+        pub fn estadisticas_categoria(
+            &self,
+            categoria: String,
+        ) -> Result<EstadisticasCategoria, Error> {
+            self._estadisticas_categoria(categoria)
+        }
+
+        /// Obtiene el conteo de órdenes de un usuario específico.
+        ///
+        /// # Argumentos
+        ///
+        /// * `usuario` - La cuenta del usuario a consultar.
+        ///
+        /// # Retorno
+        ///
+        /// Estructura con el conteo de órdenes como comprador y vendedor,
+        /// tanto totales como completadas.
+        #[ink(message)]
+        pub fn ordenes_por_usuario(&self, usuario: AccountId) -> OrdenesUsuario {
+            self._ordenes_por_usuario(usuario)
+        }
+
+        /// Obtiene un resumen de órdenes para todos los usuarios activos.
+        ///
+        /// # Retorno
+        ///
+        /// Lista de usuarios con sus conteos de órdenes.
+        /// Solo incluye usuarios que tienen al menos una orden.
+        #[ink(message)]
+        pub fn resumen_ordenes_todos_usuarios(&self) -> Vec<OrdenesUsuario> {
+            self._resumen_ordenes_todos_usuarios()
+        }
+
+        /// Obtiene un resumen general del marketplace.
+        ///
+        /// # Retorno
+        ///
+        /// Tupla con los siguientes valores:
+        /// - `0`: Total de usuarios registrados
+        /// - `1`: Total de productos publicados
+        /// - `2`: Total de órdenes creadas
+        /// - `3`: Total de órdenes completadas (estado Recibido)
+        #[ink(message)]
+        pub fn resumen_general(&self) -> (u32, u32, u32, u32) {
+            self._resumen_general()
+        }
+
+        /// Obtiene todas las categorías disponibles en el marketplace.
+        ///
+        /// # Retorno
+        ///
+        /// Lista de nombres de categorías únicas extraídas de los productos publicados.
+        #[ink(message)]
+        pub fn listar_categorias(&self) -> Vec<String> {
+            self._listar_categorias()
+        }
+
+        /// Crea una referencia al contrato Marketplace.
+        fn marketplace(&self) -> MarketplaceRef {
+            ink::env::call::FromAccountId::from_account_id(self.marketplace_address)
+        }
+
+        /// Lógica interna para top vendedores.
+        fn _top_vendedores(&self, limite: u32) -> Vec<UsuarioConReputacion> {
+            let marketplace = self.marketplace();
+            let usuarios = marketplace.listar_usuarios();
+            let mut resultado: Vec<UsuarioConReputacion> = Vec::new();
+
+            for usuario in usuarios {
+                if let Some(rep) = marketplace.obtener_reputacion(usuario) {
+                    if rep.como_vendedor.1 > 0 {
+                        let promedio_x100 = (rep.como_vendedor.0 * 100) / rep.como_vendedor.1;
+                        resultado.push(UsuarioConReputacion {
+                            usuario,
+                            promedio_x100,
+                            cantidad_calificaciones: rep.como_vendedor.1,
+                        });
+                    }
+                }
+            }
+
+            self._ordenar_por_reputacion(&mut resultado);
+
+            let limite = limite.min(resultado.len() as u32) as usize;
+            resultado.truncate(limite);
+
+            resultado
+        }
+
+        /// Lógica interna para top compradores.
+        fn _top_compradores(&self, limite: u32) -> Vec<UsuarioConReputacion> {
+            let marketplace = self.marketplace();
+            let usuarios = marketplace.listar_usuarios();
+            let mut resultado: Vec<UsuarioConReputacion> = Vec::new();
+
+            for usuario in usuarios {
+                if let Some(rep) = marketplace.obtener_reputacion(usuario) {
+                    if rep.como_comprador.1 > 0 {
+                        let promedio_x100 = (rep.como_comprador.0 * 100) / rep.como_comprador.1;
+                        resultado.push(UsuarioConReputacion {
+                            usuario,
+                            promedio_x100,
+                            cantidad_calificaciones: rep.como_comprador.1,
+                        });
+                    }
+                }
+            }
+
+            self._ordenar_por_reputacion(&mut resultado);
+
+            let limite = limite.min(resultado.len() as u32) as usize;
+            resultado.truncate(limite);
+
+            resultado
+        }
+
+        /// Lógica interna para productos más vendidos.
+        fn _productos_mas_vendidos(&self, limite: u32) -> Vec<ProductoVendido> {
+            let marketplace = self.marketplace();
+            let ordenes = marketplace.listar_todas_ordenes();
+            let productos = marketplace.listar_todos_productos();
+
+            let mut ventas: Vec<(u32, u32)> = Vec::new();
+
+            for (_oid, orden) in &ordenes {
+                if orden.estado != Estado::Cancelada {
+                    let mut encontrado = false;
+                    for (id, cant) in ventas.iter_mut() {
+                        if *id == orden.id_prod {
+                            *cant += orden.cantidad;
+                            encontrado = true;
+                            break;
+                        }
+                    }
+                    if !encontrado {
+                        ventas.push((orden.id_prod, orden.cantidad));
+                    }
+                }
+            }
+
+            ventas.sort_by(|a, b| b.1.cmp(&a.1));
+
+            let mut resultado: Vec<ProductoVendido> = Vec::new();
+            let limite = limite as usize;
+
+            for (id_prod, unidades) in ventas.iter().take(limite) {
+                for (pid, producto) in &productos {
+                    if *pid == *id_prod {
+                        resultado.push(ProductoVendido {
+                            id_producto: *id_prod,
+                            nombre: producto.nombre.clone(),
+                            categoria: producto.categoria.clone(),
+                            vendedor: producto.vendedor,
+                            unidades_vendidas: *unidades,
+                        });
+                        break;
+                    }
+                }
+            }
+
+            resultado
+        }
+
+        /// Lógica interna para estadísticas por categoría.
+        fn _estadisticas_por_categoria(&self) -> Vec<EstadisticasCategoria> {
+            let marketplace = self.marketplace();
+            let productos = marketplace.listar_todos_productos();
+            let ordenes = marketplace.listar_todas_ordenes();
+
+            struct DatosCat {
+                categoria: String,
+                total_ventas: u32,
+                total_unidades: u32,
+                suma_calif: u32,
+                cant_calif: u32,
+                cant_productos: u32,
+                vendedores: Vec<AccountId>,
+            }
+
+            let mut categorias: Vec<DatosCat> = Vec::new();
+
+            for (_pid, producto) in &productos {
+                let mut encontrada = false;
+
+                for cat in categorias.iter_mut() {
+                    if cat.categoria == producto.categoria {
+                        cat.cant_productos += 1;
+                        let mut vendedor_existe = false;
+                        for v in &cat.vendedores {
+                            if *v == producto.vendedor {
+                                vendedor_existe = true;
+                                break;
+                            }
+                        }
+                        if !vendedor_existe {
+                            cat.vendedores.push(producto.vendedor);
+                        }
+                        encontrada = true;
+                        break;
+                    }
+                }
+
+                if !encontrada {
+                    categorias.push(DatosCat {
+                        categoria: producto.categoria.clone(),
+                        total_ventas: 0,
+                        total_unidades: 0,
+                        suma_calif: 0,
+                        cant_calif: 0,
+                        cant_productos: 1,
+                        vendedores: ink::prelude::vec![producto.vendedor],
+                    });
+                }
+            }
+
+            for (_oid, orden) in &ordenes {
+                if orden.estado == Estado::Recibido {
+                    for (pid, producto) in &productos {
+                        if *pid == orden.id_prod {
+                            for cat in categorias.iter_mut() {
+                                if cat.categoria == producto.categoria {
+                                    cat.total_ventas += 1;
+                                    cat.total_unidades += orden.cantidad;
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
+            for cat in categorias.iter_mut() {
+                for vendedor in &cat.vendedores {
+                    if let Some(rep) = marketplace.obtener_reputacion(*vendedor) {
+                        if rep.como_vendedor.1 > 0 {
+                            cat.suma_calif += rep.como_vendedor.0;
+                            cat.cant_calif += rep.como_vendedor.1;
+                        }
+                    }
+                }
+            }
+
+            let mut resultado: Vec<EstadisticasCategoria> = Vec::new();
+
+            for cat in categorias {
+                let promedio = if cat.cant_calif > 0 {
+                    (cat.suma_calif * 100) / cat.cant_calif
+                } else {
+                    0
+                };
+
+                resultado.push(EstadisticasCategoria {
+                    categoria: cat.categoria,
+                    total_ventas: cat.total_ventas,
+                    total_unidades: cat.total_unidades,
+                    calificacion_promedio_x100: promedio,
+                    cantidad_productos: cat.cant_productos,
+                });
+            }
+
+            resultado
+        }
+
+        /// Lógica interna para estadísticas de una categoría.
+        fn _estadisticas_categoria(
+            &self,
+            categoria: String,
+        ) -> Result<EstadisticasCategoria, Error> {
+            let todas = self._estadisticas_por_categoria();
+
+            for stat in todas {
+                if stat.categoria == categoria {
+                    return Ok(stat);
+                }
+            }
+
+            Err(Error::CategoriaNoEncontrada)
+        }
+
+        /// Lógica interna para órdenes por usuario.
+        fn _ordenes_por_usuario(&self, usuario: AccountId) -> OrdenesUsuario {
+            let marketplace = self.marketplace();
+            let ordenes = marketplace.listar_todas_ordenes();
+
+            let mut resultado = OrdenesUsuario {
+                usuario,
+                ordenes_como_comprador: 0,
+                ordenes_como_vendedor: 0,
+                completadas_como_comprador: 0,
+                completadas_como_vendedor: 0,
+            };
+
+            for (_oid, orden) in ordenes {
+                if orden.comprador == usuario {
+                    resultado.ordenes_como_comprador += 1;
+                    if orden.estado == Estado::Recibido {
+                        resultado.completadas_como_comprador += 1;
+                    }
+                }
+                if orden.vendedor == usuario {
+                    resultado.ordenes_como_vendedor += 1;
+                    if orden.estado == Estado::Recibido {
+                        resultado.completadas_como_vendedor += 1;
+                    }
+                }
+            }
+
+            resultado
+        }
+
+        /// Lógica interna para resumen de órdenes de todos los usuarios.
+        fn _resumen_ordenes_todos_usuarios(&self) -> Vec<OrdenesUsuario> {
+            let marketplace = self.marketplace();
+            let usuarios = marketplace.listar_usuarios();
+            let mut resultado: Vec<OrdenesUsuario> = Vec::new();
+
+            for usuario in usuarios {
+                let ordenes = self._ordenes_por_usuario(usuario);
+                let tiene_ordenes =
+                    ordenes.ordenes_como_comprador > 0 || ordenes.ordenes_como_vendedor > 0;
+
+                if tiene_ordenes {
+                    resultado.push(ordenes);
+                }
+            }
+
+            resultado
+        }
+
+        /// Lógica interna para resumen general.
+        fn _resumen_general(&self) -> (u32, u32, u32, u32) {
+            let marketplace = self.marketplace();
+            let usuarios = marketplace.listar_usuarios();
+            let productos = marketplace.listar_todos_productos();
+            let ordenes = marketplace.listar_todas_ordenes();
+
+            let mut completadas: u32 = 0;
+            for (_oid, orden) in &ordenes {
+                if orden.estado == Estado::Recibido {
+                    completadas += 1;
+                }
+            }
+
+            (
+                usuarios.len() as u32,
+                productos.len() as u32,
+                ordenes.len() as u32,
+                completadas,
+            )
+        }
+
+        /// Lógica interna para listar categorías.
+        fn _listar_categorias(&self) -> Vec<String> {
+            let marketplace = self.marketplace();
+            let productos = marketplace.listar_todos_productos();
+            let mut categorias: Vec<String> = Vec::new();
+
+            for (_pid, producto) in productos {
+                let mut existe = false;
+                for cat in &categorias {
+                    if *cat == producto.categoria {
+                        existe = true;
+                        break;
+                    }
+                }
+                if !existe {
+                    categorias.push(producto.categoria);
+                }
+            }
+
+            categorias
+        }
+
+        /// Ordena usuarios por reputación descendente.
+        fn _ordenar_por_reputacion(&self, usuarios: &mut Vec<UsuarioConReputacion>) {
+            usuarios.sort_by(|a, b| {
+                if b.promedio_x100 != a.promedio_x100 {
+                    b.promedio_x100.cmp(&a.promedio_x100)
+                } else {
+                    b.cantidad_calificaciones.cmp(&a.cantidad_calificaciones)
+                }
+            });
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// Crea una cuenta de prueba con un byte específico.
+        fn cuenta(n: u8) -> AccountId {
+            AccountId::from([n; 32])
+        }
+
+        #[ink::test]
+        fn test_constructor() {
+            let marketplace_addr = cuenta(1);
+            let reportes = Reportes::new(marketplace_addr);
+            assert_eq!(reportes.get_marketplace(), marketplace_addr);
+        }
+
+        #[ink::test]
+        fn test_constructor_diferentes_direcciones() {
+            let addr1 = cuenta(10);
+            let addr2 = cuenta(20);
+
+            let reportes1 = Reportes::new(addr1);
+            let reportes2 = Reportes::new(addr2);
+
+            assert_eq!(reportes1.get_marketplace(), addr1);
+            assert_eq!(reportes2.get_marketplace(), addr2);
+            assert_ne!(reportes1.get_marketplace(), reportes2.get_marketplace());
+        }
+
+        #[ink::test]
+        fn test_ordenar_por_reputacion_basico() {
+            let reportes = Reportes::new(cuenta(1));
+
+            let mut usuarios = vec![
+                UsuarioConReputacion {
+                    usuario: cuenta(2),
+                    promedio_x100: 300,
+                    cantidad_calificaciones: 5,
+                },
+                UsuarioConReputacion {
+                    usuario: cuenta(3),
+                    promedio_x100: 500,
+                    cantidad_calificaciones: 2,
+                },
+                UsuarioConReputacion {
+                    usuario: cuenta(4),
+                    promedio_x100: 500,
+                    cantidad_calificaciones: 10,
+                },
+            ];
+
+            reportes._ordenar_por_reputacion(&mut usuarios);
+
+            assert_eq!(usuarios[0].usuario, cuenta(4));
+            assert_eq!(usuarios[0].promedio_x100, 500);
+            assert_eq!(usuarios[0].cantidad_calificaciones, 10);
+
+            assert_eq!(usuarios[1].usuario, cuenta(3));
+            assert_eq!(usuarios[1].promedio_x100, 500);
+
+            assert_eq!(usuarios[2].usuario, cuenta(2));
+            assert_eq!(usuarios[2].promedio_x100, 300);
+        }
+
+        #[ink::test]
+        fn test_ordenar_por_reputacion_lista_vacia() {
+            let reportes = Reportes::new(cuenta(1));
+            let mut usuarios: Vec<UsuarioConReputacion> = Vec::new();
+
+            reportes._ordenar_por_reputacion(&mut usuarios);
+
+            assert!(usuarios.is_empty());
+        }
+
+        #[ink::test]
+        fn test_ordenar_por_reputacion_un_elemento() {
+            let reportes = Reportes::new(cuenta(1));
+            let mut usuarios = vec![UsuarioConReputacion {
+                usuario: cuenta(1),
+                promedio_x100: 400,
+                cantidad_calificaciones: 5,
+            }];
+
+            reportes._ordenar_por_reputacion(&mut usuarios);
+
+            assert_eq!(usuarios.len(), 1);
+            assert_eq!(usuarios[0].promedio_x100, 400);
+        }
+
+        #[ink::test]
+        fn test_ordenar_por_reputacion_empate_total() {
+            let reportes = Reportes::new(cuenta(1));
+            let mut usuarios = vec![
+                UsuarioConReputacion {
+                    usuario: cuenta(1),
+                    promedio_x100: 450,
+                    cantidad_calificaciones: 10,
+                },
+                UsuarioConReputacion {
+                    usuario: cuenta(2),
+                    promedio_x100: 450,
+                    cantidad_calificaciones: 10,
+                },
+            ];
+
+            reportes._ordenar_por_reputacion(&mut usuarios);
+
+            assert_eq!(usuarios.len(), 2);
+            assert_eq!(usuarios[0].promedio_x100, 450);
+            assert_eq!(usuarios[1].promedio_x100, 450);
+        }
+
+        #[ink::test]
+        fn test_ordenar_desempate_por_cantidad_calificaciones() {
+            let reportes = Reportes::new(cuenta(1));
+            let mut usuarios = vec![
+                UsuarioConReputacion {
+                    usuario: cuenta(1),
+                    promedio_x100: 400,
+                    cantidad_calificaciones: 5,
+                },
+                UsuarioConReputacion {
+                    usuario: cuenta(2),
+                    promedio_x100: 400,
+                    cantidad_calificaciones: 20,
+                },
+                UsuarioConReputacion {
+                    usuario: cuenta(3),
+                    promedio_x100: 400,
+                    cantidad_calificaciones: 10,
+                },
+            ];
+
+            reportes._ordenar_por_reputacion(&mut usuarios);
+
+            assert_eq!(usuarios[0].cantidad_calificaciones, 20);
+            assert_eq!(usuarios[1].cantidad_calificaciones, 10);
+            assert_eq!(usuarios[2].cantidad_calificaciones, 5);
+        }
+
+        #[ink::test]
+        fn test_usuario_con_reputacion() {
+            let usuario = UsuarioConReputacion {
+                usuario: cuenta(1),
+                promedio_x100: 450,
+                cantidad_calificaciones: 10,
+            };
+
+            assert_eq!(usuario.usuario, cuenta(1));
+            assert_eq!(usuario.promedio_x100, 450);
+            assert_eq!(usuario.cantidad_calificaciones, 10);
+
+            let usuario2 = usuario.clone();
+            assert_eq!(usuario, usuario2);
+        }
+
+        #[ink::test]
+        fn test_usuario_con_reputacion_valores_extremos() {
+            let min = UsuarioConReputacion {
+                usuario: cuenta(0),
+                promedio_x100: 100,
+                cantidad_calificaciones: 1,
+            };
+            assert_eq!(min.promedio_x100, 100);
+
+            let max = UsuarioConReputacion {
+                usuario: cuenta(255),
+                promedio_x100: 500,
+                cantidad_calificaciones: u32::MAX,
+            };
+            assert_eq!(max.promedio_x100, 500);
+        }
+
+        #[ink::test]
+        fn test_producto_vendido() {
+            let producto = ProductoVendido {
+                id_producto: 1,
+                nombre: String::from("Laptop Gaming"),
+                categoria: String::from("Electrónica"),
+                vendedor: cuenta(5),
+                unidades_vendidas: 100,
+            };
+
+            assert_eq!(producto.id_producto, 1);
+            assert_eq!(producto.nombre, "Laptop Gaming");
+            assert_eq!(producto.categoria, "Electrónica");
+            assert_eq!(producto.vendedor, cuenta(5));
+            assert_eq!(producto.unidades_vendidas, 100);
+
+            let producto2 = producto.clone();
+            assert_eq!(producto, producto2);
+        }
+
+        #[ink::test]
+        fn test_producto_vendido_nombre_largo() {
+            let nombre_largo = "A".repeat(256);
+            let producto = ProductoVendido {
+                id_producto: 999,
+                nombre: nombre_largo.clone(),
+                categoria: String::from("Test"),
+                vendedor: cuenta(1),
+                unidades_vendidas: 1,
+            };
+
+            assert_eq!(producto.nombre.len(), 256);
+        }
+
+        #[ink::test]
+        fn test_estadisticas_categoria() {
+            let stats = EstadisticasCategoria {
+                categoria: String::from("Electrónica"),
+                total_ventas: 150,
+                total_unidades: 500,
+                calificacion_promedio_x100: 425,
+                cantidad_productos: 25,
+            };
+
+            assert_eq!(stats.categoria, "Electrónica");
+            assert_eq!(stats.total_ventas, 150);
+            assert_eq!(stats.total_unidades, 500);
+            assert_eq!(stats.calificacion_promedio_x100, 425);
+            assert_eq!(stats.cantidad_productos, 25);
+
+            let stats2 = stats.clone();
+            assert_eq!(stats, stats2);
+        }
+
+        #[ink::test]
+        fn test_estadisticas_categoria_sin_ventas() {
+            let stats = EstadisticasCategoria {
+                categoria: String::from("Nueva Categoría"),
+                total_ventas: 0,
+                total_unidades: 0,
+                calificacion_promedio_x100: 0,
+                cantidad_productos: 5,
+            };
+
+            assert_eq!(stats.total_ventas, 0);
+            assert_eq!(stats.calificacion_promedio_x100, 0);
+        }
+
+        #[ink::test]
+        fn test_ordenes_usuario() {
+            let ordenes = OrdenesUsuario {
+                usuario: cuenta(10),
+                ordenes_como_comprador: 15,
+                ordenes_como_vendedor: 25,
+                completadas_como_comprador: 12,
+                completadas_como_vendedor: 20,
+            };
+
+            assert_eq!(ordenes.usuario, cuenta(10));
+            assert_eq!(ordenes.ordenes_como_comprador, 15);
+            assert_eq!(ordenes.ordenes_como_vendedor, 25);
+            assert_eq!(ordenes.completadas_como_comprador, 12);
+            assert_eq!(ordenes.completadas_como_vendedor, 20);
+
+            let ordenes2 = ordenes.clone();
+            assert_eq!(ordenes, ordenes2);
+        }
+
+        #[ink::test]
+        fn test_ordenes_usuario_sin_actividad() {
+            let ordenes = OrdenesUsuario {
+                usuario: cuenta(1),
+                ordenes_como_comprador: 0,
+                ordenes_como_vendedor: 0,
+                completadas_como_comprador: 0,
+                completadas_como_vendedor: 0,
+            };
+
+            assert_eq!(ordenes.ordenes_como_comprador, 0);
+            assert_eq!(ordenes.ordenes_como_vendedor, 0);
+        }
+
+        #[ink::test]
+        fn test_ordenes_usuario_solo_comprador() {
+            let ordenes = OrdenesUsuario {
+                usuario: cuenta(1),
+                ordenes_como_comprador: 10,
+                ordenes_como_vendedor: 0,
+                completadas_como_comprador: 8,
+                completadas_como_vendedor: 0,
+            };
+
+            assert!(ordenes.ordenes_como_comprador > 0);
+            assert_eq!(ordenes.ordenes_como_vendedor, 0);
+        }
+
+        #[ink::test]
+        fn test_ordenes_usuario_solo_vendedor() {
+            let ordenes = OrdenesUsuario {
+                usuario: cuenta(1),
+                ordenes_como_comprador: 0,
+                ordenes_como_vendedor: 20,
+                completadas_como_comprador: 0,
+                completadas_como_vendedor: 18,
+            };
+
+            assert_eq!(ordenes.ordenes_como_comprador, 0);
+            assert!(ordenes.ordenes_como_vendedor > 0);
+        }
+
+        #[ink::test]
+        fn test_error_categoria_no_encontrada() {
+            let error = Error::CategoriaNoEncontrada;
+            assert_eq!(error, Error::CategoriaNoEncontrada);
+        }
+
+        #[ink::test]
+        fn test_error_debug() {
+            let error = Error::CategoriaNoEncontrada;
+            let _debug_str = format!("{:?}", error);
+        }
+
+        #[ink::test]
+        fn test_calculo_promedio_x100() {
+            let suma = 20u32;
+            let cantidad = 5u32;
+            let promedio_x100 = (suma * 100) / cantidad;
+            assert_eq!(promedio_x100, 400);
+
+            let suma2 = 12u32;
+            let cantidad2 = 3u32;
+            let promedio2 = (suma2 * 100) / cantidad2;
+            assert_eq!(promedio2, 400);
+        }
+
+        #[ink::test]
+        fn test_calculo_promedio_con_decimales() {
+            let suma = 7u32;
+            let cantidad = 3u32;
+            let promedio_x100 = (suma * 100) / cantidad;
+            assert_eq!(promedio_x100, 233);
+        }
+
+        #[ink::test]
+        fn test_comparacion_usuarios() {
+            let u1 = UsuarioConReputacion {
+                usuario: cuenta(1),
+                promedio_x100: 400,
+                cantidad_calificaciones: 10,
+            };
+
+            let u2 = UsuarioConReputacion {
+                usuario: cuenta(1),
+                promedio_x100: 400,
+                cantidad_calificaciones: 10,
+            };
+
+            let u3 = UsuarioConReputacion {
+                usuario: cuenta(2),
+                promedio_x100: 400,
+                cantidad_calificaciones: 10,
+            };
+
+            assert_eq!(u1, u2);
+            assert_ne!(u1, u3);
+        }
+
+        #[ink::test]
+        fn test_comparacion_productos() {
+            let p1 = ProductoVendido {
+                id_producto: 1,
+                nombre: String::from("Test"),
+                categoria: String::from("Cat"),
+                vendedor: cuenta(1),
+                unidades_vendidas: 10,
+            };
+
+            let p2 = p1.clone();
+            assert_eq!(p1, p2);
+
+            let p3 = ProductoVendido {
+                id_producto: 2,
+                nombre: String::from("Test"),
+                categoria: String::from("Cat"),
+                vendedor: cuenta(1),
+                unidades_vendidas: 10,
+            };
+            assert_ne!(p1, p3);
+        }
+
+        #[ink::test]
+        fn test_comparacion_estadisticas() {
+            let s1 = EstadisticasCategoria {
+                categoria: String::from("Cat1"),
+                total_ventas: 100,
+                total_unidades: 200,
+                calificacion_promedio_x100: 450,
+                cantidad_productos: 10,
+            };
+
+            let s2 = s1.clone();
+            assert_eq!(s1, s2);
+
+            let s3 = EstadisticasCategoria {
+                categoria: String::from("Cat2"),
+                total_ventas: 100,
+                total_unidades: 200,
+                calificacion_promedio_x100: 450,
+                cantidad_productos: 10,
+            };
+            assert_ne!(s1, s3);
+        }
+
+        #[ink::test]
+        fn test_comparacion_ordenes() {
+            let o1 = OrdenesUsuario {
+                usuario: cuenta(1),
+                ordenes_como_comprador: 5,
+                ordenes_como_vendedor: 10,
+                completadas_como_comprador: 4,
+                completadas_como_vendedor: 8,
+            };
+
+            let o2 = o1.clone();
+            assert_eq!(o1, o2);
+
+            let o3 = OrdenesUsuario {
+                usuario: cuenta(2),
+                ordenes_como_comprador: 5,
+                ordenes_como_vendedor: 10,
+                completadas_como_comprador: 4,
+                completadas_como_vendedor: 8,
+            };
+            assert_ne!(o1, o3);
+        }
+
+        #[ink::test]
+        fn test_ordenar_muchos_usuarios() {
+            let reportes = Reportes::new(cuenta(1));
+            let mut usuarios = vec![
+                UsuarioConReputacion {
+                    usuario: cuenta(1),
+                    promedio_x100: 100,
+                    cantidad_calificaciones: 1,
+                },
+                UsuarioConReputacion {
+                    usuario: cuenta(2),
+                    promedio_x100: 500,
+                    cantidad_calificaciones: 100,
+                },
+                UsuarioConReputacion {
+                    usuario: cuenta(3),
+                    promedio_x100: 350,
+                    cantidad_calificaciones: 50,
+                },
+                UsuarioConReputacion {
+                    usuario: cuenta(4),
+                    promedio_x100: 450,
+                    cantidad_calificaciones: 25,
+                },
+                UsuarioConReputacion {
+                    usuario: cuenta(5),
+                    promedio_x100: 200,
+                    cantidad_calificaciones: 10,
+                },
+            ];
+
+            reportes._ordenar_por_reputacion(&mut usuarios);
+
+            assert_eq!(usuarios[0].promedio_x100, 500);
+            assert_eq!(usuarios[1].promedio_x100, 450);
+            assert_eq!(usuarios[2].promedio_x100, 350);
+            assert_eq!(usuarios[3].promedio_x100, 200);
+            assert_eq!(usuarios[4].promedio_x100, 100);
+        }
+
+        #[ink::test]
+        fn test_ordenar_preserva_todos_elementos() {
+            let reportes = Reportes::new(cuenta(1));
+            let mut usuarios = vec![
+                UsuarioConReputacion {
+                    usuario: cuenta(1),
+                    promedio_x100: 300,
+                    cantidad_calificaciones: 5,
+                },
+                UsuarioConReputacion {
+                    usuario: cuenta(2),
+                    promedio_x100: 400,
+                    cantidad_calificaciones: 10,
+                },
+            ];
+
+            let len_original = usuarios.len();
+            reportes._ordenar_por_reputacion(&mut usuarios);
+
+            assert_eq!(usuarios.len(), len_original);
+        }
     }
 }

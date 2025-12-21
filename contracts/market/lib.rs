@@ -2995,3 +2995,9 @@ mod marketplace {
         }
     }
 }
+
+// Re-exportaciones públicas para usar este contrato como dependencia
+#[cfg(feature = "ink-as-dependency")]
+pub use marketplace::{
+    Estado, Marketplace, MarketplaceRef, Orden, Producto, ReputacionUsuario, Rol,
+};

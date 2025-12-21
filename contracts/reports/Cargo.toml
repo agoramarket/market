@@ -1,11 +1,16 @@
 [package]
 name = "reports"
 version = "0.1.0"
-authors = ["[your_name] <[your_email]>"]
+authors = ["The Agora Developers"]
+description = "A decentralized marketplace smart contract built with ink!"
+repository = "https://github.com/agoramarket/market"
 edition = "2021"
 
 [dependencies]
 ink = { version = "5.1.1", default-features = false }
+scale = { package = "parity-scale-codec", version = "3.7", default-features = false, features = ["derive"] }
+scale-info = { version = "2.11", default-features = false, features = ["derive"] }
+market = { path = "../market", default-features = false, features = ["ink-as-dependency"] }
 
 [dev-dependencies]
 ink_e2e = { version = "5.1.1" }
@@ -17,6 +22,9 @@ path = "lib.rs"
 default = ["std"]
 std = [
     "ink/std",
+    "scale/std",
+    "scale-info/std",
+    "market/std",
 ]
 ink-as-dependency = []
 e2e-tests = []
