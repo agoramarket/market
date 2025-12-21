@@ -207,6 +207,8 @@ mod marketplace {
         next_prod_id: u32,
         /// El ID que se asignará a la próxima orden creada.
         next_order_id: u32,
+        /// Lista de todos los usuarios registrados (para iterar en reportes)
+        usuarios_registrados: Vec<AccountId>,
     }
 
     impl Default for Marketplace {
@@ -233,6 +235,7 @@ mod marketplace {
                 calificaciones: Mapping::default(),
                 next_prod_id: 1,
                 next_order_id: 1,
+                usuarios_registrados: Vec::new(),
             }
         }
 
@@ -590,6 +593,66 @@ mod marketplace {
             self._calificar_comprador(caller, oid, puntos)
         }
 
+        /// Obtiene el total de productos publicados.
+        /// Útil para que ReportesView pueda iterar sobre todos los productos.
+        #[ink(message)]
+        pub fn get_total_productos(&self) -> u32 {
+            self.next_prod_id.saturating_sub(1)
+        }
+
+        /// Obtiene el total de órdenes creadas.
+        /// Útil para que ReportesView pueda iterar sobre todas las órdenes.
+        #[ink(message)]
+        pub fn get_total_ordenes(&self) -> u32 {
+            self.next_order_id.saturating_sub(1)
+        }
+
+        /// Obtiene una orden por su ID sin restricción de permisos.
+        /// Esta función es pública para permitir reportes y análisis.
+        ///
+        /// # Argumentos
+        /// * `id` - El ID de la orden a consultar.
+        ///
+        /// # Retorno
+        /// Devuelve `Some(Orden)` si existe, `None` en caso contrario.
+        #[ink(message)]
+        pub fn obtener_orden_publica(&self, id: u32) -> Option<Orden> {
+            self.ordenes.get(id)
+        }
+
+        /// Obtiene la lista de todos los usuarios registrados.
+        /// Útil para calcular rankings de reputación.
+        #[ink(message)]
+        pub fn listar_usuarios(&self) -> Vec<AccountId> {
+            self.usuarios_registrados.clone()
+        }
+
+        /// Obtiene todos los productos (para reportes).
+        /// Itera internamente y devuelve la lista completa.
+        #[ink(message)]
+        pub fn listar_todos_productos(&self) -> Vec<(u32, Producto)> {
+            let mut productos = Vec::new();
+            for pid in 1..self.next_prod_id {
+                if let Some(producto) = self.productos.get(pid) {
+                    productos.push((pid, producto));
+                }
+            }
+            productos
+        }
+
+        /// Obtiene todas las órdenes (para reportes).
+        /// Itera internamente y devuelve la lista completa.
+        #[ink(message)]
+        pub fn listar_todas_ordenes(&self) -> Vec<(u32, Orden)> {
+            let mut ordenes = Vec::new();
+            for oid in 1..self.next_order_id {
+                if let Some(orden) = self.ordenes.get(oid) {
+                    ordenes.push((oid, orden));
+                }
+            }
+            ordenes
+        }
+
         /// Lógica interna para listar productos de un vendedor.
         fn _listar_productos_de_vendedor(&self, vendedor: AccountId) -> Vec<Producto> {
             let mut productos_vendedor = Vec::new();
@@ -624,6 +687,7 @@ mod marketplace {
         fn _registrar(&mut self, caller: AccountId, rol: Rol) -> Result<(), Error> {
             self.ensure(!self.roles.contains(caller), Error::YaRegistrado)?;
             self.roles.insert(caller, &rol);
+            self.usuarios_registrados.push(caller);
             Ok(())
         }
 
