@@ -471,7 +471,13 @@ mod marketplace {
         ///
         /// El llamante debe ser el comprador o el vendedor de la orden.
         /// La orden debe estar en estado `Pendiente` o `Enviado`.
-        /// Solo puede haber una solicitud de cancelación pendiente por orden.
+        ///
+        /// - Si la orden está `Pendiente` y el llamante es el comprador, la orden se
+        ///   cancela de forma inmediata y se restaura el stock (camino unilateral
+        ///   pedido por la consigna).
+        /// - En cualquier otro caso (`Enviado` o petición iniciada por el vendedor),
+        ///   se registra una solicitud que debe ser aceptada o rechazada por la otra
+        ///   parte. Solo puede haber una solicitud pendiente por orden.
         ///
         /// # Argumentos
         ///
@@ -817,7 +823,7 @@ mod marketplace {
 
         /// Lógica interna para solicitar la cancelación de una orden.
         fn _solicitar_cancelacion(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
-            let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
+            let mut orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
 
             self.ensure(orden.estado != Estado::Cancelada, Error::OrdenCancelada)?;
 
@@ -830,6 +836,28 @@ mod marketplace {
                 orden.estado == Estado::Pendiente || orden.estado == Estado::Enviado,
                 Error::EstadoInvalido,
             )?;
+
+            // Camino unilateral: comprador cancela directo si la orden sigue pendiente.
+            if orden.estado == Estado::Pendiente && caller == orden.comprador {
+                let mut producto = self
+                    .productos
+                    .get(orden.id_prod)
+                    .ok_or(Error::ProdInexistente)?;
+                producto.stock = producto
+                    .stock
+                    .checked_add(orden.cantidad)
+                    .ok_or(Error::StockOverflow)?;
+                self.productos.insert(orden.id_prod, &producto);
+
+                orden.estado = Estado::Cancelada;
+                self.ordenes.insert(oid, &orden);
+
+                if self.cancelaciones_pendientes.contains(oid) {
+                    self.cancelaciones_pendientes.remove(oid);
+                }
+
+                return Ok(());
+            }
 
             self.ensure(
                 !self.cancelaciones_pendientes.contains(oid),
@@ -1966,6 +1994,46 @@ mod marketplace {
             let oid = mp.comprar(pid, 3).unwrap();
 
             assert_eq!(mp.solicitar_cancelacion(oid), Ok(()));
+        }
+
+        /// Test: El comprador cancela unilateralmente una orden pendiente (restaura stock y marca cancelada).
+        #[ink::test]
+        fn comprador_cancela_unilateral_pendiente() {
+            let accounts = get_accounts();
+            let mut mp = Marketplace::new();
+
+            set_next_caller(accounts.alice);
+            mp.registrar(Rol::Vendedor).unwrap();
+            let pid = mp
+                .publicar(
+                    "Test".to_string(),
+                    "Desc".to_string(),
+                    100,
+                    5,
+                    "Cat".to_string(),
+                )
+                .unwrap();
+
+            set_next_caller(accounts.bob);
+            mp.registrar(Rol::Comprador).unwrap();
+            let oid = mp.comprar(pid, 3).unwrap();
+
+            // Stock queda en 2 tras la compra.
+            assert_eq!(mp.obtener_producto(pid).unwrap().stock, 2);
+            assert_eq!(mp.obtener_orden(oid).unwrap().estado, Estado::Pendiente);
+
+            // El comprador cancela en estado pendiente sin esperar al vendedor.
+            assert_eq!(mp.solicitar_cancelacion(oid), Ok(()));
+
+            let orden = mp.obtener_orden(oid).unwrap();
+            assert_eq!(orden.estado, Estado::Cancelada);
+
+            // Stock restaurado a 5 (stock original).
+            let producto = mp.obtener_producto(pid).unwrap();
+            assert_eq!(producto.stock, 5);
+
+            // No debe quedar una solicitud pendiente que luego se acepte.
+            assert_eq!(mp.aceptar_cancelacion(oid), Err(Error::CancelacionInexistente));
         }
 
         /// Test: Solicitar cancelación exitosamente desde el vendedor.
