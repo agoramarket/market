@@ -335,7 +335,7 @@ mod reportes {
             let mut ventas: Vec<(u32, u32)> = Vec::new();
 
             for (_oid, orden) in &ordenes {
-                if orden.estado != Estado::Cancelada {
+                if orden.estado == Estado::Recibido {
                     let mut encontrado = false;
                     for (id, cant) in ventas.iter_mut() {
                         if *id == orden.id_prod {

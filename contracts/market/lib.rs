@@ -837,7 +837,6 @@ mod marketplace {
                 Error::EstadoInvalido,
             )?;
 
-            // Camino unilateral: comprador cancela directo si la orden sigue pendiente.
             if orden.estado == Estado::Pendiente && caller == orden.comprador {
                 let mut producto = self
                     .productos
