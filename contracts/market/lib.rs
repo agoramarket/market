@@ -203,6 +203,8 @@ mod marketplace {
         reputaciones: Mapping<AccountId, ReputacionUsuario>,
         /// Almacena el estado de calificaciones para cada orden.
         calificaciones: Mapping<u32, CalificacionOrden>,
+        /// Suma y cantidad de calificaciones de vendedores por categoría (promedio = suma / cantidad).
+        calificaciones_por_categoria: Mapping<String, (u32, u32)>,
         /// El ID que se asignará al próximo producto publicado.
         next_prod_id: u32,
         /// El ID que se asignará a la próxima orden creada.
@@ -233,6 +235,7 @@ mod marketplace {
                 cancelaciones_pendientes: Mapping::default(),
                 reputaciones: Mapping::default(),
                 calificaciones: Mapping::default(),
+                calificaciones_por_categoria: Mapping::default(),
                 next_prod_id: 1,
                 next_order_id: 1,
                 usuarios_registrados: Vec::new(),
@@ -547,6 +550,13 @@ mod marketplace {
         #[ink(message)]
         pub fn obtener_reputacion(&self, usuario: AccountId) -> Option<ReputacionUsuario> {
             self.reputaciones.get(usuario)
+        }
+
+        /// Obtiene la suma y cantidad de calificaciones de vendedores para una categoría.
+        /// Retorna `Some((suma, cantidad))` o `None` si aún no hay calificaciones registradas.
+        #[ink(message)]
+        pub fn obtener_calificacion_categoria(&self, categoria: String) -> Option<(u32, u32)> {
+            self.calificaciones_por_categoria.get(categoria)
         }
 
         /// Permite al comprador calificar al vendedor de una orden.
@@ -1054,6 +1064,20 @@ mod marketplace {
                 .ok_or(Error::IdOverflow)?;
 
             self.reputaciones.insert(orden.vendedor, &rep);
+
+            let producto = self
+                .productos
+                .get(orden.id_prod)
+                .ok_or(Error::ProdInexistente)?;
+            let mut cat_rep = self
+                .calificaciones_por_categoria
+                .get(producto.categoria.clone())
+                .unwrap_or((0, 0));
+
+            cat_rep.0 = cat_rep.0.checked_add(puntos as u32).ok_or(Error::IdOverflow)?;
+            cat_rep.1 = cat_rep.1.checked_add(1).ok_or(Error::IdOverflow)?;
+            self.calificaciones_por_categoria
+                .insert(producto.categoria, &cat_rep);
 
             Ok(())
         }
@@ -2833,6 +2857,11 @@ mod marketplace {
 
             let rep = mp.obtener_reputacion(accounts.alice).unwrap();
             assert_eq!(rep.como_vendedor, (8, 2)); // 5 + 3 = 8, count = 2
+
+            let cat = mp
+                .obtener_calificacion_categoria("Cat".to_string())
+                .unwrap();
+            assert_eq!(cat, (8, 2));
         }
 
         /// Test: Error al calificar orden cancelada.

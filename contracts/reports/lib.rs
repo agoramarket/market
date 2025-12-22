@@ -443,13 +443,11 @@ mod reportes {
             }
 
             for cat in categorias.iter_mut() {
-                for vendedor in &cat.vendedores {
-                    if let Some(rep) = marketplace.obtener_reputacion(*vendedor) {
-                        if rep.como_vendedor.1 > 0 {
-                            cat.suma_calif += rep.como_vendedor.0;
-                            cat.cant_calif += rep.como_vendedor.1;
-                        }
-                    }
+                if let Some((suma, cant)) =
+                    marketplace.obtener_calificacion_categoria(cat.categoria.clone())
+                {
+                    cat.suma_calif += suma;
+                    cat.cant_calif += cant;
                 }
             }
 
