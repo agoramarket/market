@@ -1657,7 +1657,7 @@ mod marketplace {
             mp.comprar(pid, 2).unwrap();
             mp.comprar(pid, 3).unwrap();
 
-            let ordenes = mp.listar_ordenes_de_comprador();
+            let ordenes = mp.listar_ordenes_de_comprador(accounts.bob);
             assert_eq!(ordenes.len(), 2);
             assert_eq!(ordenes[0].cantidad, 2);
             assert_eq!(ordenes[1].cantidad, 3);
@@ -1672,7 +1672,7 @@ mod marketplace {
             set_next_caller(accounts.alice);
             mp.registrar(Rol::Comprador).unwrap();
 
-            let ordenes = mp.listar_ordenes_de_comprador();
+            let ordenes = mp.listar_ordenes_de_comprador(accounts.alice);
             assert_eq!(ordenes.len(), 0);
         }
 
