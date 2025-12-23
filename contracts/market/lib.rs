@@ -465,9 +465,8 @@ mod marketplace {
         /// Esta función itera sobre todos los IDs de órdenes, por lo que su costo
         /// aumenta linealmente con el número total de órdenes en el marketplace.
         #[ink(message)]
-        pub fn listar_ordenes_de_comprador(&self) -> Vec<Orden> {
-            let caller = self.env().caller();
-            self._listar_ordenes_de_comprador(caller)
+        pub fn listar_ordenes_de_comprador(&self, comprador: AccountId) -> Vec<Orden> {
+            self._listar_ordenes_de_comprador(comprador)
         }
 
         /// Solicita la cancelación de una orden.
@@ -769,7 +768,7 @@ mod marketplace {
             self.ensure(producto.vendedor != comprador, Error::AutoCompraProhibida)?;
             self.ensure(producto.stock >= cant, Error::StockInsuf)?;
 
-            producto.stock -= cant;
+            producto.stock = producto.stock.checked_sub(cant).ok_or(Error::StockInsuf)?;
             self.productos.insert(id_prod, &producto);
 
             let oid = self.next_order_id;
