@@ -276,26 +276,26 @@ mod reportes {
         fn _top_vendedores(&self, limite: u32) -> Vec<UsuarioConReputacion> {
             let marketplace = self.marketplace();
             let usuarios = marketplace.listar_usuarios();
-            let mut resultado: Vec<UsuarioConReputacion> = Vec::new();
-
-            for usuario in usuarios {
-                if let Some(rep) = marketplace.obtener_reputacion(usuario) {
-                    if rep.como_vendedor.1 > 0 {
-                        let promedio_x100 = (rep.como_vendedor.0 * 100) / rep.como_vendedor.1;
-                        resultado.push(UsuarioConReputacion {
-                            usuario,
-                            promedio_x100,
-                            cantidad_calificaciones: rep.como_vendedor.1,
-                        });
-                    }
-                }
-            }
+            let mut resultado: Vec<UsuarioConReputacion> = usuarios
+                .into_iter()
+                .filter_map(|usuario| {
+                    marketplace.obtener_reputacion(usuario).and_then(|rep| {
+                        if rep.como_vendedor.1 > 0 {
+                            let promedio_x100 = (rep.como_vendedor.0 * 100) / rep.como_vendedor.1;
+                            Some(UsuarioConReputacion {
+                                usuario,
+                                promedio_x100,
+                                cantidad_calificaciones: rep.como_vendedor.1,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .collect();
 
             self._ordenar_por_reputacion(&mut resultado);
-
-            let limite = limite.min(resultado.len() as u32) as usize;
-            resultado.truncate(limite);
-
+            resultado.truncate((limite as usize).min(resultado.len()));
             resultado
         }
 
@@ -303,26 +303,26 @@ mod reportes {
         fn _top_compradores(&self, limite: u32) -> Vec<UsuarioConReputacion> {
             let marketplace = self.marketplace();
             let usuarios = marketplace.listar_usuarios();
-            let mut resultado: Vec<UsuarioConReputacion> = Vec::new();
-
-            for usuario in usuarios {
-                if let Some(rep) = marketplace.obtener_reputacion(usuario) {
-                    if rep.como_comprador.1 > 0 {
-                        let promedio_x100 = (rep.como_comprador.0 * 100) / rep.como_comprador.1;
-                        resultado.push(UsuarioConReputacion {
-                            usuario,
-                            promedio_x100,
-                            cantidad_calificaciones: rep.como_comprador.1,
-                        });
-                    }
-                }
-            }
+            let mut resultado: Vec<UsuarioConReputacion> = usuarios
+                .into_iter()
+                .filter_map(|usuario| {
+                    marketplace.obtener_reputacion(usuario).and_then(|rep| {
+                        if rep.como_comprador.1 > 0 {
+                            let promedio_x100 = (rep.como_comprador.0 * 100) / rep.como_comprador.1;
+                            Some(UsuarioConReputacion {
+                                usuario,
+                                promedio_x100,
+                                cantidad_calificaciones: rep.como_comprador.1,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .collect();
 
             self._ordenar_por_reputacion(&mut resultado);
-
-            let limite = limite.min(resultado.len() as u32) as usize;
-            resultado.truncate(limite);
-
+            resultado.truncate((limite as usize).min(resultado.len()));
             resultado
         }
 
@@ -336,15 +336,9 @@ mod reportes {
 
             for (_oid, orden) in &ordenes {
                 if orden.estado == Estado::Recibido {
-                    let mut encontrado = false;
-                    for (id, cant) in ventas.iter_mut() {
-                        if *id == orden.id_prod {
-                            *cant += orden.cantidad;
-                            encontrado = true;
-                            break;
-                        }
-                    }
-                    if !encontrado {
+                    if let Some(pos) = ventas.iter().position(|(id, _)| *id == orden.id_prod) {
+                        ventas[pos].1 += orden.cantidad;
+                    } else {
                         ventas.push((orden.id_prod, orden.cantidad));
                     }
                 }
@@ -352,25 +346,19 @@ mod reportes {
 
             ventas.sort_by(|a, b| b.1.cmp(&a.1));
 
-            let mut resultado: Vec<ProductoVendido> = Vec::new();
-            let limite = limite as usize;
-
-            for (id_prod, unidades) in ventas.iter().take(limite) {
-                for (pid, producto) in &productos {
-                    if *pid == *id_prod {
-                        resultado.push(ProductoVendido {
+            ventas.iter().take(limite as usize)
+                .filter_map(|(id_prod, unidades)| {
+                    productos.iter()
+                        .find(|(pid, _)| pid == id_prod)
+                        .map(|(_, producto)| ProductoVendido {
                             id_producto: *id_prod,
                             nombre: producto.nombre.clone(),
                             categoria: producto.categoria.clone(),
                             vendedor: producto.vendedor,
                             unidades_vendidas: *unidades,
-                        });
-                        break;
-                    }
-                }
-            }
-
-            resultado
+                        })
+                })
+                .collect()
         }
 
         /// Lógica interna para estadísticas por categoría.
@@ -386,57 +374,31 @@ mod reportes {
                 suma_calif: u32,
                 cant_calif: u32,
                 cant_productos: u32,
-                vendedores: Vec<AccountId>,
             }
 
             let mut categorias: Vec<DatosCat> = Vec::new();
 
             for (_pid, producto) in &productos {
-                let mut encontrada = false;
-
-                for cat in categorias.iter_mut() {
-                    if cat.categoria == producto.categoria {
-                        cat.cant_productos += 1;
-                        let mut vendedor_existe = false;
-                        for v in &cat.vendedores {
-                            if *v == producto.vendedor {
-                                vendedor_existe = true;
-                                break;
-                            }
-                        }
-                        if !vendedor_existe {
-                            cat.vendedores.push(producto.vendedor);
-                        }
-                        encontrada = true;
-                        break;
-                    }
-                }
-
-                if !encontrada {
-                    categorias.push(DatosCat {
+                let found = categorias.iter_mut().find(|c| c.categoria == producto.categoria);
+                match found {
+                    Some(cat) => cat.cant_productos += 1,
+                    None => categorias.push(DatosCat {
                         categoria: producto.categoria.clone(),
                         total_ventas: 0,
                         total_unidades: 0,
                         suma_calif: 0,
                         cant_calif: 0,
                         cant_productos: 1,
-                        vendedores: ink::prelude::vec![producto.vendedor],
-                    });
+                    }),
                 }
             }
 
             for (_oid, orden) in &ordenes {
                 if orden.estado == Estado::Recibido {
-                    for (pid, producto) in &productos {
-                        if *pid == orden.id_prod {
-                            for cat in categorias.iter_mut() {
-                                if cat.categoria == producto.categoria {
-                                    cat.total_ventas += 1;
-                                    cat.total_unidades += orden.cantidad;
-                                    break;
-                                }
-                            }
-                            break;
+                    if let Some(producto) = productos.iter().find(|(pid, _)| *pid == orden.id_prod).map(|(_, p)| p) {
+                        if let Some(cat) = categorias.iter_mut().find(|c| c.categoria == producto.categoria) {
+                            cat.total_ventas += 1;
+                            cat.total_unidades += orden.cantidad;
                         }
                     }
                 }
@@ -446,30 +408,26 @@ mod reportes {
                 if let Some((suma, cant)) =
                     marketplace.obtener_calificacion_categoria(cat.categoria.clone())
                 {
-                    cat.suma_calif += suma;
-                    cat.cant_calif += cant;
+                    cat.suma_calif = suma;
+                    cat.cant_calif = cant;
                 }
             }
 
-            let mut resultado: Vec<EstadisticasCategoria> = Vec::new();
-
-            for cat in categorias {
+            categorias.into_iter().map(|cat| {
                 let promedio = if cat.cant_calif > 0 {
                     (cat.suma_calif * 100) / cat.cant_calif
                 } else {
                     0
                 };
 
-                resultado.push(EstadisticasCategoria {
+                EstadisticasCategoria {
                     categoria: cat.categoria,
                     total_ventas: cat.total_ventas,
                     total_unidades: cat.total_unidades,
                     calificacion_promedio_x100: promedio,
                     cantidad_productos: cat.cant_productos,
-                });
-            }
-
-            resultado
+                }
+            }).collect()
         }
 
         /// Lógica interna para estadísticas de una categoría.
@@ -567,14 +525,7 @@ mod reportes {
             let mut categorias: Vec<String> = Vec::new();
 
             for (_pid, producto) in productos {
-                let mut existe = false;
-                for cat in &categorias {
-                    if *cat == producto.categoria {
-                        existe = true;
-                        break;
-                    }
-                }
-                if !existe {
+                if !categorias.iter().any(|c| c == &producto.categoria) {
                     categorias.push(producto.categoria);
                 }
             }

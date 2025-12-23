@@ -822,10 +822,7 @@ mod marketplace {
 
             orden.estado = Estado::Recibido;
             self.ordenes.insert(oid, &orden);
-
-            if self.cancelaciones_pendientes.contains(oid) {
-                self.cancelaciones_pendientes.remove(oid);
-            }
+            self.cancelaciones_pendientes.remove(oid);
 
             Ok(())
         }
@@ -859,10 +856,7 @@ mod marketplace {
 
                 orden.estado = Estado::Cancelada;
                 self.ordenes.insert(oid, &orden);
-
-                if self.cancelaciones_pendientes.contains(oid) {
-                    self.cancelaciones_pendientes.remove(oid);
-                }
+                self.cancelaciones_pendientes.remove(oid);
 
                 return Ok(());
             }
@@ -872,11 +866,10 @@ mod marketplace {
                 Error::CancelacionYaPendiente,
             )?;
 
-            let cancelacion = CancelacionPendiente {
+            self.cancelaciones_pendientes.insert(oid, &CancelacionPendiente {
                 oid,
                 solicitante: caller,
-            };
-            self.cancelaciones_pendientes.insert(oid, &cancelacion);
+            });
             Ok(())
         }
 
@@ -916,9 +909,10 @@ mod marketplace {
                 .ok_or(Error::StockOverflow)?;
             self.productos.insert(orden.id_prod, &producto);
 
-            let mut orden_mut = orden.clone();
-            orden_mut.estado = Estado::Cancelada;
-            self.ordenes.insert(oid, &orden_mut);
+            self.ordenes.insert(oid, &Orden {
+                estado: Estado::Cancelada,
+                ..orden
+            });
 
             self.cancelaciones_pendientes.remove(oid);
 
@@ -1028,9 +1022,7 @@ mod marketplace {
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
 
             self.ensure(orden.comprador == caller, Error::SinPermiso)?;
-
             self.ensure(orden.estado == Estado::Recibido, Error::OrdenNoRecibida)?;
-
             self.ensure(puntos >= 1 && puntos <= 5, Error::CalificacionInvalida)?;
 
             let mut calif = self.calificaciones.get(oid).unwrap_or(CalificacionOrden {
@@ -1055,7 +1047,6 @@ mod marketplace {
                 .0
                 .checked_add(puntos as u32)
                 .ok_or(Error::IdOverflow)?;
-
             rep.como_vendedor.1 = rep
                 .como_vendedor
                 .1
@@ -1091,9 +1082,7 @@ mod marketplace {
             let orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
 
             self.ensure(orden.vendedor == caller, Error::SinPermiso)?;
-
             self.ensure(orden.estado == Estado::Recibido, Error::OrdenNoRecibida)?;
-
             self.ensure(puntos >= 1 && puntos <= 5, Error::CalificacionInvalida)?;
 
             let mut calif = self.calificaciones.get(oid).unwrap_or(CalificacionOrden {
@@ -1118,7 +1107,6 @@ mod marketplace {
                 .0
                 .checked_add(puntos as u32)
                 .ok_or(Error::IdOverflow)?;
-
             rep.como_comprador.1 = rep
                 .como_comprador
                 .1
