@@ -290,6 +290,42 @@ mod marketplace {
             self._modificar_rol(caller, nuevo_rol)
         }
 
+        /// Obtiene todos los productos disponibles en el marketplace de una sola vez.
+        ///
+        /// # Retorno
+        ///
+        /// Un vector de tuplas, donde cada tupla contiene:
+        /// - `u32`: El ID del producto.
+        /// - `Producto`: La estructura con los detalles del producto.
+        #[ink(message)]
+        pub fn listar_todos_productos(&self) -> Vec<(u32, Producto)> {
+            self._listar_todos_productos()
+        }
+
+        /// Obtiene todas las órdenes registradas en el marketplace de una sola vez.
+        ///
+        /// # Retorno
+        ///
+        /// Un vector de tuplas, donde cada tupla contiene:
+        /// - `u32`: El ID de la orden.
+        /// - `Orden`: La estructura con los detalles de la orden.
+        #[ink(message)]
+        pub fn listar_todas_ordenes(&self) -> Vec<(u32, Orden)> {
+            self._listar_todas_ordenes()
+        }
+
+        /// Obtiene las reputaciones de todos los usuarios registrados.
+        ///
+        /// # Retorno
+        ///
+        /// Un vector de tuplas, donde cada tupla contiene:
+        /// - `AccountId`: La cuenta del usuario.
+        /// - `ReputacionUsuario`: La estructura con la reputación de comprador y vendedor.
+        #[ink(message)]
+        pub fn listar_todas_reputaciones(&self) -> Vec<(AccountId, ReputacionUsuario)> {
+            self._listar_todas_reputaciones()
+        }
+
         /// Publica un nuevo producto en el marketplace.
         ///
         /// El llamante debe estar registrado como `Vendedor` o `Ambos`.
@@ -642,30 +678,39 @@ mod marketplace {
             self.usuarios_registrados.clone()
         }
 
-        /// Obtiene todos los productos (para reportes).
-        /// Itera internamente y devuelve la lista completa.
-        #[ink(message)]
-        pub fn listar_todos_productos(&self) -> Vec<(u32, Producto)> {
-            let mut productos = Vec::new();
-            for pid in 1..self.next_prod_id {
-                if let Some(producto) = self.productos.get(pid) {
-                    productos.push((pid, producto));
+
+
+        /// Lógica interna para listar todos los productos.
+        fn _listar_todos_productos(&self) -> Vec<(u32, Producto)> {
+            let mut lista = Vec::new();
+            for i in 1..self.next_prod_id {
+                if let Some(p) = self.productos.get(i) {
+                    lista.push((i, p));
                 }
             }
-            productos
+            lista
         }
 
-        /// Obtiene todas las órdenes (para reportes).
-        /// Itera internamente y devuelve la lista completa.
-        #[ink(message)]
-        pub fn listar_todas_ordenes(&self) -> Vec<(u32, Orden)> {
-            let mut ordenes = Vec::new();
-            for oid in 1..self.next_order_id {
-                if let Some(orden) = self.ordenes.get(oid) {
-                    ordenes.push((oid, orden));
+        /// Lógica interna para listar todas las órdenes.
+        fn _listar_todas_ordenes(&self) -> Vec<(u32, Orden)> {
+            let mut lista = Vec::new();
+            for i in 1..self.next_order_id {
+                if let Some(o) = self.ordenes.get(i) {
+                    lista.push((i, o));
                 }
             }
-            ordenes
+            lista
+        }
+
+        /// Lógica interna para listar todas las reputaciones.
+        fn _listar_todas_reputaciones(&self) -> Vec<(AccountId, ReputacionUsuario)> {
+            let mut lista = Vec::new();
+            for usuario in &self.usuarios_registrados {
+                if let Some(rep) = self.reputaciones.get(usuario) {
+                    lista.push((*usuario, rep));
+                }
+            }
+            lista
         }
 
         /// Lógica interna para listar productos de un vendedor.
