@@ -491,15 +491,19 @@ mod reportes {
 
             for (_oid, orden) in ordenes {
                 if orden.comprador == usuario {
-                    resultado.ordenes_como_comprador = resultado.ordenes_como_comprador.saturating_add(1);
+                    resultado.ordenes_como_comprador =
+                        resultado.ordenes_como_comprador.saturating_add(1);
                     if orden.estado == Estado::Recibido {
-                        resultado.completadas_como_comprador = resultado.completadas_como_comprador.saturating_add(1);
+                        resultado.completadas_como_comprador =
+                            resultado.completadas_como_comprador.saturating_add(1);
                     }
                 }
                 if orden.vendedor == usuario {
-                    resultado.ordenes_como_vendedor = resultado.ordenes_como_vendedor.saturating_add(1);
+                    resultado.ordenes_como_vendedor =
+                        resultado.ordenes_como_vendedor.saturating_add(1);
                     if orden.estado == Estado::Recibido {
-                        resultado.completadas_como_vendedor = resultado.completadas_como_vendedor.saturating_add(1);
+                        resultado.completadas_como_vendedor =
+                            resultado.completadas_como_vendedor.saturating_add(1);
                     }
                 }
             }

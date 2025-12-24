@@ -2,7 +2,7 @@ use ink_e2e::ContractsBackend;
 
 type E2EResult<T> = Result<T, Box<dyn std::error::Error>>;
 
-use market::{Marketplace, MarketplaceRef, Rol, Estado};
+use market::{Estado, Marketplace, MarketplaceRef, Rol};
 
 #[ink_e2e::test]
 async fn e2e_flujo_compra_completo(mut client: Client) -> E2EResult<()> {
@@ -13,7 +13,7 @@ async fn e2e_flujo_compra_completo(mut client: Client) -> E2EResult<()> {
         .submit()
         .await
         .expect("instantiate failed");
-    
+
     let mut call_builder = contract.call_builder::<Marketplace>();
 
     // 2. Alice se registra como Vendedor
@@ -118,15 +118,23 @@ async fn e2e_flujo_cancelacion(mut client: Client) -> E2EResult<()> {
         .submit()
         .await
         .expect("instantiate failed");
-    
+
     let mut call_builder = contract.call_builder::<Marketplace>();
 
     // Registros
     let reg_alice = call_builder.registrar(Rol::Vendedor);
-    client.call(&ink_e2e::alice(), &reg_alice).submit().await.expect("reg alice failed");
+    client
+        .call(&ink_e2e::alice(), &reg_alice)
+        .submit()
+        .await
+        .expect("reg alice failed");
 
     let reg_bob = call_builder.registrar(Rol::Comprador);
-    client.call(&ink_e2e::bob(), &reg_bob).submit().await.expect("reg bob failed");
+    client
+        .call(&ink_e2e::bob(), &reg_bob)
+        .submit()
+        .await
+        .expect("reg bob failed");
 
     // Publicar
     let publicar = call_builder.publicar(
@@ -136,27 +144,47 @@ async fn e2e_flujo_cancelacion(mut client: Client) -> E2EResult<()> {
         10,
         String::from("Hogar"),
     );
-    let result = client.call(&ink_e2e::alice(), &publicar).submit().await.expect("publicar failed");
+    let result = client
+        .call(&ink_e2e::alice(), &publicar)
+        .submit()
+        .await
+        .expect("publicar failed");
     let pid = result.return_value().unwrap();
 
     // Comprar
     let comprar = call_builder.comprar(pid, 2);
-    let result = client.call(&ink_e2e::bob(), &comprar).submit().await.expect("comprar failed");
+    let result = client
+        .call(&ink_e2e::bob(), &comprar)
+        .submit()
+        .await
+        .expect("comprar failed");
     let oid = result.return_value().unwrap();
 
     // 2. Bob solicita cancelación
     let sol_cancel = call_builder.solicitar_cancelacion(oid);
-    let result = client.call(&ink_e2e::bob(), &sol_cancel).submit().await.expect("sol_cancel failed");
+    let result = client
+        .call(&ink_e2e::bob(), &sol_cancel)
+        .submit()
+        .await
+        .expect("sol_cancel failed");
     assert!(result.return_value().is_ok());
 
     // 3. Alice acepta cancelación
     let aceptar_cancel = call_builder.aceptar_cancelacion(oid);
-    let result = client.call(&ink_e2e::alice(), &aceptar_cancel).submit().await.expect("aceptar_cancel failed");
+    let result = client
+        .call(&ink_e2e::alice(), &aceptar_cancel)
+        .submit()
+        .await
+        .expect("aceptar_cancel failed");
     assert!(result.return_value().is_ok());
 
     // 4. Verificar stock restaurado
     let get_prod = call_builder.obtener_producto(pid);
-    let result = client.call(&ink_e2e::alice(), &get_prod).submit().await.expect("obtener_producto failed");
+    let result = client
+        .call(&ink_e2e::alice(), &get_prod)
+        .submit()
+        .await
+        .expect("obtener_producto failed");
     let prod = result.return_value().unwrap();
     assert_eq!(prod.stock, 10); // Stock restaurado
 
@@ -171,16 +199,24 @@ async fn e2e_stock_insuficiente(mut client: Client) -> E2EResult<()> {
         .submit()
         .await
         .expect("instantiate failed");
-    
+
     let mut call_builder = contract.call_builder::<Marketplace>();
 
     // Alice como Ambos
     let reg = call_builder.registrar(Rol::Ambos);
-    client.call(&ink_e2e::alice(), &reg).submit().await.expect("reg failed");
+    client
+        .call(&ink_e2e::alice(), &reg)
+        .submit()
+        .await
+        .expect("reg failed");
 
     // Bob como Comprador
     let reg_bob = call_builder.registrar(Rol::Comprador);
-    client.call(&ink_e2e::bob(), &reg_bob).submit().await.expect("reg bob failed");
+    client
+        .call(&ink_e2e::bob(), &reg_bob)
+        .submit()
+        .await
+        .expect("reg bob failed");
 
     // Publicar con stock 1
     let publicar = call_builder.publicar(
@@ -190,15 +226,22 @@ async fn e2e_stock_insuficiente(mut client: Client) -> E2EResult<()> {
         1,
         String::from("Cat"),
     );
-    let result = client.call(&ink_e2e::alice(), &publicar).submit().await.expect("publicar failed");
+    let result = client
+        .call(&ink_e2e::alice(), &publicar)
+        .submit()
+        .await
+        .expect("publicar failed");
     let pid = result.return_value().unwrap();
 
     // Bob intenta comprar 2 (debe fallar)
     let comprar = call_builder.comprar(pid, 2);
     let result = client.call(&ink_e2e::bob(), &comprar).submit().await;
-    
+
     // Debe fallar por stock insuficiente - la transacción completa falla
-    assert!(result.is_err(), "Comprar con stock insuficiente debería fallar");
+    assert!(
+        result.is_err(),
+        "Comprar con stock insuficiente debería fallar"
+    );
 
     Ok(())
 }
