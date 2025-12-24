@@ -25,4 +25,4 @@ std = [
     "scale-info/std",
 ]
 ink-as-dependency = []
-e2e-tests = []
+e2e-tests = ["ink-as-dependency"]

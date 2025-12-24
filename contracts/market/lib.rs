@@ -1155,5 +1155,5 @@ mod marketplace {
 
 #[cfg(feature = "ink-as-dependency")]
 pub use marketplace::{
-    Estado, Marketplace, MarketplaceRef, Orden, Producto, ReputacionUsuario, Rol,
+    Error, Estado, Marketplace, MarketplaceRef, Orden, Producto, ReputacionUsuario, Rol,
 };

@@ -278,6 +278,7 @@ mod reportes {
         /// Utiliza `listar_todas_reputaciones` para obtener todos los datos en una sola llamada
         /// externa (O(1) llamadas de red), en lugar de iterar y llamar por cada usuario (O(N)).
         /// El filtrado y ordenamiento se realizan localmente en memoria.
+        #[allow(clippy::arithmetic_side_effects)]
         fn _top_vendedores(&self, limite: u32) -> Vec<UsuarioConReputacion> {
             let marketplace = self.marketplace();
             let reputaciones = marketplace.listar_todas_reputaciones();
@@ -285,12 +286,13 @@ mod reportes {
             let mut resultado: Vec<UsuarioConReputacion> = reputaciones
                 .into_iter()
                 .filter_map(|(usuario, rep)| {
-                    if rep.como_vendedor.1 > 0 {
-                        let promedio_x100 = (rep.como_vendedor.0 * 100) / rep.como_vendedor.1;
+                    let (suma, cantidad) = rep.como_vendedor;
+                    if cantidad > 0 {
+                        let promedio_x100 = suma.saturating_mul(100).saturating_div(cantidad);
                         Some(UsuarioConReputacion {
                             usuario,
                             promedio_x100,
-                            cantidad_calificaciones: rep.como_vendedor.1,
+                            cantidad_calificaciones: cantidad,
                         })
                     } else {
                         None
@@ -309,6 +311,7 @@ mod reportes {
         /// Utiliza `listar_todas_reputaciones` para obtener todos los datos en una sola llamada
         /// externa (O(1) llamadas de red), en lugar de iterar y llamar por cada usuario (O(N)).
         /// El filtrado y ordenamiento se realizan localmente en memoria.
+        #[allow(clippy::arithmetic_side_effects)]
         fn _top_compradores(&self, limite: u32) -> Vec<UsuarioConReputacion> {
             let marketplace = self.marketplace();
             let reputaciones = marketplace.listar_todas_reputaciones();
@@ -316,12 +319,13 @@ mod reportes {
             let mut resultado: Vec<UsuarioConReputacion> = reputaciones
                 .into_iter()
                 .filter_map(|(usuario, rep)| {
-                    if rep.como_comprador.1 > 0 {
-                        let promedio_x100 = (rep.como_comprador.0 * 100) / rep.como_comprador.1;
+                    let (suma, cantidad) = rep.como_comprador;
+                    if cantidad > 0 {
+                        let promedio_x100 = suma.saturating_mul(100).saturating_div(cantidad);
                         Some(UsuarioConReputacion {
                             usuario,
                             promedio_x100,
-                            cantidad_calificaciones: rep.como_comprador.1,
+                            cantidad_calificaciones: cantidad,
                         })
                     } else {
                         None
@@ -345,7 +349,7 @@ mod reportes {
             for (_oid, orden) in &ordenes {
                 if orden.estado == Estado::Recibido {
                     if let Some(pos) = ventas.iter().position(|(id, _)| *id == orden.id_prod) {
-                        ventas[pos].1 += orden.cantidad;
+                        ventas[pos].1 = ventas[pos].1.saturating_add(orden.cantidad);
                     } else {
                         ventas.push((orden.id_prod, orden.cantidad));
                     }
@@ -373,6 +377,7 @@ mod reportes {
         }
 
         /// Lógica interna para estadísticas por categoría.
+        #[allow(clippy::arithmetic_side_effects)]
         fn _estadisticas_por_categoria(&self) -> Vec<EstadisticasCategoria> {
             let marketplace = self.marketplace();
             let productos = marketplace.listar_todos_productos();
@@ -394,7 +399,7 @@ mod reportes {
                     .iter_mut()
                     .find(|c| c.categoria == producto.categoria);
                 match found {
-                    Some(cat) => cat.cant_productos += 1,
+                    Some(cat) => cat.cant_productos = cat.cant_productos.saturating_add(1),
                     None => categorias.push(DatosCat {
                         categoria: producto.categoria.clone(),
                         total_ventas: 0,
@@ -417,8 +422,8 @@ mod reportes {
                             .iter_mut()
                             .find(|c| c.categoria == producto.categoria)
                         {
-                            cat.total_ventas += 1;
-                            cat.total_unidades += orden.cantidad;
+                            cat.total_ventas = cat.total_ventas.saturating_add(1);
+                            cat.total_unidades = cat.total_unidades.saturating_add(orden.cantidad);
                         }
                     }
                 }
@@ -436,8 +441,10 @@ mod reportes {
             categorias
                 .into_iter()
                 .map(|cat| {
-                    let promedio = if cat.cant_calif > 0 {
-                        (cat.suma_calif * 100) / cat.cant_calif
+                    let suma = cat.suma_calif;
+                    let cantidad = cat.cant_calif;
+                    let promedio = if cantidad > 0 {
+                        suma.saturating_mul(100).saturating_div(cantidad)
                     } else {
                         0
                     };
@@ -484,15 +491,15 @@ mod reportes {
 
             for (_oid, orden) in ordenes {
                 if orden.comprador == usuario {
-                    resultado.ordenes_como_comprador += 1;
+                    resultado.ordenes_como_comprador = resultado.ordenes_como_comprador.saturating_add(1);
                     if orden.estado == Estado::Recibido {
-                        resultado.completadas_como_comprador += 1;
+                        resultado.completadas_como_comprador = resultado.completadas_como_comprador.saturating_add(1);
                     }
                 }
                 if orden.vendedor == usuario {
-                    resultado.ordenes_como_vendedor += 1;
+                    resultado.ordenes_como_vendedor = resultado.ordenes_como_vendedor.saturating_add(1);
                     if orden.estado == Estado::Recibido {
-                        resultado.completadas_como_vendedor += 1;
+                        resultado.completadas_como_vendedor = resultado.completadas_como_vendedor.saturating_add(1);
                     }
                 }
             }
@@ -529,14 +536,14 @@ mod reportes {
             let mut completadas: u32 = 0;
             for (_oid, orden) in &ordenes {
                 if orden.estado == Estado::Recibido {
-                    completadas += 1;
+                    completadas = completadas.saturating_add(1);
                 }
             }
 
             (
-                usuarios.len() as u32,
-                productos.len() as u32,
-                ordenes.len() as u32,
+                u32::try_from(usuarios.len()).unwrap_or(u32::MAX),
+                u32::try_from(productos.len()).unwrap_or(u32::MAX),
+                u32::try_from(ordenes.len()).unwrap_or(u32::MAX),
                 completadas,
             )
         }
@@ -571,3 +578,9 @@ mod reportes {
     #[cfg(test)]
     include!("unit_tests.rs");
 }
+
+#[cfg(feature = "ink-as-dependency")]
+pub use reportes::{
+    Error, EstadisticasCategoria, OrdenesUsuario, ProductoVendido, Reportes, ReportesRef,
+    UsuarioConReputacion,
+};
