@@ -272,25 +272,29 @@ mod reportes {
             ink::env::call::FromAccountId::from_account_id(self.marketplace_address)
         }
 
-        /// Lógica interna para top vendedores.
+        /// Lógica interna para calcular el top de vendedores.
+        ///
+        /// # Optimización
+        /// Utiliza `listar_todas_reputaciones` para obtener todos los datos en una sola llamada
+        /// externa (O(1) llamadas de red), en lugar de iterar y llamar por cada usuario (O(N)).
+        /// El filtrado y ordenamiento se realizan localmente en memoria.
         fn _top_vendedores(&self, limite: u32) -> Vec<UsuarioConReputacion> {
             let marketplace = self.marketplace();
-            let usuarios = marketplace.listar_usuarios();
-            let mut resultado: Vec<UsuarioConReputacion> = usuarios
+            let reputaciones = marketplace.listar_todas_reputaciones();
+
+            let mut resultado: Vec<UsuarioConReputacion> = reputaciones
                 .into_iter()
-                .filter_map(|usuario| {
-                    marketplace.obtener_reputacion(usuario).and_then(|rep| {
-                        if rep.como_vendedor.1 > 0 {
-                            let promedio_x100 = (rep.como_vendedor.0 * 100) / rep.como_vendedor.1;
-                            Some(UsuarioConReputacion {
-                                usuario,
-                                promedio_x100,
-                                cantidad_calificaciones: rep.como_vendedor.1,
-                            })
-                        } else {
-                            None
-                        }
-                    })
+                .filter_map(|(usuario, rep)| {
+                    if rep.como_vendedor.1 > 0 {
+                        let promedio_x100 = (rep.como_vendedor.0 * 100) / rep.como_vendedor.1;
+                        Some(UsuarioConReputacion {
+                            usuario,
+                            promedio_x100,
+                            cantidad_calificaciones: rep.como_vendedor.1,
+                        })
+                    } else {
+                        None
+                    }
                 })
                 .collect();
 
@@ -299,25 +303,29 @@ mod reportes {
             resultado
         }
 
-        /// Lógica interna para top compradores.
+        /// Lógica interna para calcular el top de compradores.
+        ///
+        /// # Optimización
+        /// Utiliza `listar_todas_reputaciones` para obtener todos los datos en una sola llamada
+        /// externa (O(1) llamadas de red), en lugar de iterar y llamar por cada usuario (O(N)).
+        /// El filtrado y ordenamiento se realizan localmente en memoria.
         fn _top_compradores(&self, limite: u32) -> Vec<UsuarioConReputacion> {
             let marketplace = self.marketplace();
-            let usuarios = marketplace.listar_usuarios();
-            let mut resultado: Vec<UsuarioConReputacion> = usuarios
+            let reputaciones = marketplace.listar_todas_reputaciones();
+
+            let mut resultado: Vec<UsuarioConReputacion> = reputaciones
                 .into_iter()
-                .filter_map(|usuario| {
-                    marketplace.obtener_reputacion(usuario).and_then(|rep| {
-                        if rep.como_comprador.1 > 0 {
-                            let promedio_x100 = (rep.como_comprador.0 * 100) / rep.como_comprador.1;
-                            Some(UsuarioConReputacion {
-                                usuario,
-                                promedio_x100,
-                                cantidad_calificaciones: rep.como_comprador.1,
-                            })
-                        } else {
-                            None
-                        }
-                    })
+                .filter_map(|(usuario, rep)| {
+                    if rep.como_comprador.1 > 0 {
+                        let promedio_x100 = (rep.como_comprador.0 * 100) / rep.como_comprador.1;
+                        Some(UsuarioConReputacion {
+                            usuario,
+                            promedio_x100,
+                            cantidad_calificaciones: rep.como_comprador.1,
+                        })
+                    } else {
+                        None
+                    }
                 })
                 .collect();
 
