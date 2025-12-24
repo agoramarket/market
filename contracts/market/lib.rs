@@ -96,6 +96,9 @@ mod marketplace {
         pub cantidad: u32,
         /// El estado actual de la orden.
         pub estado: Estado,
+        /// El monto total pagado por la orden (precio × cantidad).
+        /// Este monto queda retenido en escrow hasta que se complete o cancele la orden.
+        pub monto_total: Balance,
     }
 
     /// Representa una solicitud de cancelación pendiente para una orden.
@@ -186,9 +189,20 @@ mod marketplace {
         CalificacionInvalida,
         /// Solo se puede calificar si la orden está en estado Recibido.
         OrdenNoRecibida,
+        /// El monto enviado es insuficiente para cubrir el precio de la compra.
+        PagoInsuficiente,
+        /// El monto enviado excede el precio de la compra.
+        PagoExcesivo,
+        /// La transferencia de fondos al vendedor o comprador falló.
+        TransferenciaFallida,
     }
 
     /// La estructura de almacenamiento principal del contrato.
+    ///
+    /// El contrato también implementa un sistema de pagos simulados con escrow:
+    /// - Al comprar, el comprador envía el monto exacto que queda retenido en el contrato.
+    /// - Al marcar como recibido, los fondos se liberan automáticamente al vendedor.
+    /// - Al cancelar por acuerdo mutuo, los fondos se devuelven al comprador.
     #[ink(storage)]
     pub struct Marketplace {
         /// Asigna un rol a cada cuenta de usuario.
@@ -205,6 +219,10 @@ mod marketplace {
         calificaciones: Mapping<u32, CalificacionOrden>,
         /// Suma y cantidad de calificaciones de vendedores por categoría (promedio = suma / cantidad).
         calificaciones_por_categoria: Mapping<String, (u32, u32)>,
+        /// Fondos retenidos en escrow por cada orden (orden_id -> balance).
+        /// Los fondos se liberan al vendedor cuando la orden se marca como recibida,
+        /// o se devuelven al comprador si la orden se cancela.
+        fondos_retenidos: Mapping<u32, Balance>,
         /// El ID que se asignará al próximo producto publicado.
         next_prod_id: u32,
         /// El ID que se asignará a la próxima orden creada.
@@ -226,6 +244,7 @@ mod marketplace {
         /// Constructor para crear una nueva instancia del marketplace.
         ///
         /// Inicializa los mappings de almacenamiento y los contadores de IDs.
+        /// El sistema de pagos (escrow) se inicializa vacío.
         #[ink(constructor)]
         pub fn new() -> Self {
             Self {
@@ -236,6 +255,7 @@ mod marketplace {
                 reputaciones: Mapping::default(),
                 calificaciones: Mapping::default(),
                 calificaciones_por_categoria: Mapping::default(),
+                fondos_retenidos: Mapping::default(),
                 next_prod_id: 1,
                 next_order_id: 1,
                 usuarios_registrados: Vec::new(),
@@ -377,6 +397,16 @@ mod marketplace {
         /// Permite a un comprador crear una orden para un producto.
         ///
         /// El llamante debe estar registrado como `Comprador` o `Ambos`.
+        /// El comprador debe enviar el monto exacto (precio × cantidad) junto con la transacción.
+        /// Los fondos quedan retenidos en el contrato (escrow) hasta que la orden se complete
+        /// o se cancele por acuerdo mutuo.
+        ///
+        /// ## Sistema de Pagos (Escrow)
+        ///
+        /// - Los fondos enviados se validan contra el precio del producto.
+        /// - Si el monto es correcto, se retienen en el contrato.
+        /// - Al marcar como `Recibido`, los fondos se transfieren al vendedor.
+        /// - Al `Cancelar`, los fondos se devuelven al comprador.
         ///
         /// # Argumentos
         ///
@@ -389,15 +419,19 @@ mod marketplace {
         /// - `Error::ParamInvalido` si la cantidad es 0.
         /// - `Error::ProdInexistente` si el producto no existe.
         /// - `Error::StockInsuf` si no hay suficiente stock para la cantidad solicitada.
+        /// - `Error::AutoCompraProhibida` si el vendedor intenta comprar su propio producto.
+        /// - `Error::PagoInsuficiente` si el monto enviado es menor al requerido.
+        /// - `Error::PagoExcesivo` si el monto enviado es mayor al requerido.
         /// - `Error::IdOverflow` si se ha alcanzado el número máximo de órdenes.
         ///
         /// # Retorno
         ///
         /// Devuelve el `id` de la nueva orden creada.
-        #[ink(message)]
+        #[ink(message, payable)]
         pub fn comprar(&mut self, id_prod: u32, cant: u32) -> Result<u32, Error> {
             let comprador = self.env().caller();
-            self._comprar(comprador, id_prod, cant)
+            let monto_enviado = self.env().transferred_value();
+            self._comprar(comprador, id_prod, cant, monto_enviado)
         }
 
         /// Marca una orden como enviada.
@@ -425,6 +459,12 @@ mod marketplace {
         /// Solo el comprador de la orden puede llamar a esta función.
         /// La orden debe estar en estado `Enviado`.
         ///
+        /// ## Liberación de Fondos
+        ///
+        /// Al marcar como recibida, los fondos retenidos en escrow se transfieren
+        /// automáticamente al vendedor. Esta operación es atómica: si la transferencia
+        /// falla, la orden no cambia de estado.
+        ///
         /// # Argumentos
         ///
         /// * `oid` - El ID de la orden a marcar como recibida.
@@ -434,6 +474,7 @@ mod marketplace {
         /// - `Error::OrdenInexistente` si la orden no existe.
         /// - `Error::SinPermiso` si el llamante no es el comprador de la orden.
         /// - `Error::EstadoInvalido` si la orden no está en estado `Enviado`.
+        /// - `Error::TransferenciaFallida` si no se pueden transferir los fondos al vendedor.
         #[ink(message)]
         pub fn marcar_recibido(&mut self, oid: u32) -> Result<(), Error> {
             let caller = self.env().caller();
@@ -534,6 +575,12 @@ mod marketplace {
         /// El llamante debe ser el otro participante (comprador si vendedor solicita, o viceversa).
         /// Al aceptar, la orden pasa a estado `Cancelada` y el stock se restaura.
         ///
+        /// ## Devolución de Fondos
+        ///
+        /// Al cancelar, los fondos retenidos en escrow se devuelven automáticamente
+        /// al comprador. Esta operación es atómica: si la transferencia falla,
+        /// la orden no cambia de estado.
+        ///
         /// # Argumentos
         ///
         /// * `oid` - El ID de la orden cuya cancelación se desea aceptar.
@@ -544,6 +591,7 @@ mod marketplace {
         /// - `Error::SinPermiso` si el llamante no es el otro participante.
         /// - `Error::OrdenInexistente` si la orden no existe.
         /// - `Error::ProdInexistente` si el producto no existe.
+        /// - `Error::TransferenciaFallida` si no se pueden devolver los fondos al comprador.
         #[ink(message)]
         pub fn aceptar_cancelacion(&mut self, oid: u32) -> Result<(), Error> {
             let caller = self.env().caller();
@@ -674,6 +722,33 @@ mod marketplace {
             self.usuarios_registrados.clone()
         }
 
+        /// Obtiene los fondos retenidos en escrow para una orden específica.
+        ///
+        /// # Argumentos
+        ///
+        /// * `oid` - El ID de la orden a consultar.
+        ///
+        /// # Retorno
+        ///
+        /// Devuelve el monto retenido para la orden, o 0 si no hay fondos (orden completada/cancelada).
+        #[ink(message)]
+        pub fn obtener_fondos_retenidos(&self, oid: u32) -> Balance {
+            self.fondos_retenidos.get(oid).unwrap_or(0)
+        }
+
+        /// Obtiene el balance total del contrato (fondos en escrow).
+        ///
+        /// Este balance representa la suma de todos los pagos retenidos
+        /// para órdenes pendientes o enviadas.
+        ///
+        /// # Retorno
+        ///
+        /// El balance actual del contrato en la moneda nativa.
+        #[ink(message)]
+        pub fn balance_contrato(&self) -> Balance {
+            self.env().balance()
+        }
+
         /// Lógica interna para listar todos los productos.
         fn _listar_todos_productos(&self) -> Vec<(u32, Producto)> {
             let mut lista = Vec::new();
@@ -792,12 +867,21 @@ mod marketplace {
             Ok(pid)
         }
 
-        /// Lógica interna para comprar un producto.
+        /// Lógica interna para comprar un producto con validación de pago.
+        ///
+        /// ## Flujo de Pago
+        /// 1. Valida rol del comprador y parámetros
+        /// 2. Calcula el monto total (precio × cantidad)
+        /// 3. Valida que el monto enviado sea exacto
+        /// 4. Descuenta stock del producto
+        /// 5. Crea la orden con el monto total registrado
+        /// 6. Retiene los fondos en escrow
         fn _comprar(
             &mut self,
             comprador: AccountId,
             id_prod: u32,
             cant: u32,
+            monto_enviado: Balance,
         ) -> Result<u32, Error> {
             let rol_comprador = self.rol_de(comprador)?;
             self.ensure(rol_comprador.es_comprador(), Error::SinPermiso)?;
@@ -806,6 +890,15 @@ mod marketplace {
             let mut producto = self.productos.get(id_prod).ok_or(Error::ProdInexistente)?;
             self.ensure(producto.vendedor != comprador, Error::AutoCompraProhibida)?;
             self.ensure(producto.stock >= cant, Error::StockInsuf)?;
+
+            // Calcular monto total requerido
+            let monto_total = producto
+                .precio
+                .checked_mul(cant as Balance)
+                .ok_or(Error::IdOverflow)?;
+
+            self.ensure(monto_enviado >= monto_total, Error::PagoInsuficiente)?;
+            self.ensure(monto_enviado <= monto_total, Error::PagoExcesivo)?;
 
             producto.stock = producto.stock.checked_sub(cant).ok_or(Error::StockInsuf)?;
             self.productos.insert(id_prod, &producto);
@@ -819,9 +912,12 @@ mod marketplace {
                 id_prod,
                 cantidad: cant,
                 estado: Estado::Pendiente,
+                monto_total,
             };
 
             self.ordenes.insert(oid, &orden);
+
+            self.fondos_retenidos.insert(oid, &monto_total);
 
             self.calificaciones.insert(
                 oid,
@@ -849,7 +945,14 @@ mod marketplace {
             Ok(())
         }
 
-        /// Lógica interna para marcar una orden como recibida.
+        /// Lógica interna para marcar una orden como recibida y liberar fondos al vendedor.
+        ///
+        /// ## Flujo de Liberación de Fondos
+        /// 1. Valida permisos y estado de la orden
+        /// 2. Obtiene los fondos retenidos en escrow
+        /// 3. Transfiere los fondos al vendedor
+        /// 4. Actualiza el estado de la orden a Recibido
+        /// 5. Limpia los fondos retenidos y cancelaciones pendientes
         fn _marcar_recibido(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let mut orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             self.ensure(orden.comprador == caller, Error::SinPermiso)?;
@@ -858,6 +961,14 @@ mod marketplace {
                 return Err(Error::OrdenCancelada);
             }
             self.ensure(orden.estado == Estado::Enviado, Error::EstadoInvalido)?;
+
+            let fondos = self.fondos_retenidos.get(oid).unwrap_or(0);
+            if fondos > 0 {
+                self.env()
+                    .transfer(orden.vendedor, fondos)
+                    .map_err(|_| Error::TransferenciaFallida)?;
+                self.fondos_retenidos.remove(oid);
+            }
 
             orden.estado = Estado::Recibido;
             self.ordenes.insert(oid, &orden);
@@ -897,7 +1008,15 @@ mod marketplace {
             Ok(())
         }
 
-        /// Lógica interna para aceptar la cancelación de una orden.
+        /// Lógica interna para aceptar la cancelación de una orden y devolver fondos.
+        ///
+        /// ## Flujo de Devolución de Fondos
+        /// 1. Valida permisos y estado de la cancelación
+        /// 2. Obtiene los fondos retenidos en escrow
+        /// 3. Transfiere los fondos de vuelta al comprador
+        /// 4. Restaura el stock del producto
+        /// 5. Actualiza el estado de la orden a Cancelada
+        /// 6. Limpia los fondos retenidos y la solicitud de cancelación
         fn _aceptar_cancelacion(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let cancelacion = self
                 .cancelaciones_pendientes
@@ -922,6 +1041,15 @@ mod marketplace {
                 self.es_otro_participante(caller, &orden, cancelacion.solicitante),
                 Error::SinPermiso,
             )?;
+
+            // Devolver fondos al comprador
+            let fondos = self.fondos_retenidos.get(oid).unwrap_or(0);
+            if fondos > 0 {
+                self.env()
+                    .transfer(orden.comprador, fondos)
+                    .map_err(|_| Error::TransferenciaFallida)?;
+                self.fondos_retenidos.remove(oid);
+            }
 
             let mut producto = self
                 .productos

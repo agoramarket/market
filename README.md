@@ -32,6 +32,11 @@
   * Productos más vendidos
   * Estadísticas por categoría
   * Resumen general del marketplace
+* ✅ **Sistema de pagos con escrow** (simulación)
+  * Pago exacto requerido al momento de la compra
+  * Fondos retenidos en el contrato hasta la entrega
+  * Liberación automática al confirmar recepción
+  * Devolución automática al cancelar orden
 * ✅ Validaciones completas de roles, estados y errores esperados
 * ✅ Documentación técnica completa en formato estándar de Rust
 * ✅ Contrato desplegado en testnet pública (Shibuya)
@@ -129,16 +134,24 @@ cargo test -p reports
 
 #### Funciones de Comprador
 
-* `comprar(producto_id, cantidad)` - Crea una orden de compra
+* `comprar(producto_id, cantidad)` - Crea una orden de compra (requiere pago exacto)
 * `listar_ordenes_de_comprador(comprador)` - Lista todas las órdenes de un comprador
-* `marcar_recibido(orden_id)` - Confirma la recepción de una orden
+* `marcar_recibido(orden_id)` - Confirma la recepción y libera los fondos al vendedor
 * `calificar_vendedor(orden_id, puntos)` - Califica al vendedor (1-5 estrellas)
 
 #### Sistema de Cancelación
 
 * `solicitar_cancelacion(orden_id)` - Solicita cancelar una orden
-* `aceptar_cancelacion(orden_id)` - Acepta la solicitud de cancelación
+* `aceptar_cancelacion(orden_id)` - Acepta la solicitud y devuelve fondos al comprador
 * `rechazar_cancelacion(orden_id)` - Rechaza la solicitud de cancelación
+
+#### Sistema de Pagos (Escrow)
+
+* `comprar()` es `payable`: requiere enviar el monto exacto (`precio × cantidad`)
+* `obtener_fondos_retenidos(orden_id)` - Consulta fondos en escrow para una orden
+* `balance_contrato()` - Consulta el balance total del contrato
+* Los fondos se liberan al vendedor con `marcar_recibido()`
+* Los fondos se devuelven al comprador al aceptar cancelación
 
 #### Consultas Generales
 

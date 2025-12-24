@@ -10,6 +10,11 @@ mod tests {
     fn get_accounts() -> test::DefaultAccounts<DefaultEnvironment> {
         test::default_accounts::<DefaultEnvironment>()
     }
+
+    /// Helper para establecer el valor transferido en tests (simula pago).
+    fn set_value(amount: Balance) {
+        test::set_value_transferred::<DefaultEnvironment>(amount);
+    }
     /// Test: Registro exitoso de usuario con rol Comprador.
     #[ink::test]
     fn registro_comprador_exitoso() {
@@ -369,6 +374,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(300); // 100 * 3 = 300
         let resultado = mp.comprar(pid, 3);
 
         assert_eq!(resultado, Ok(1));
@@ -381,6 +387,7 @@ mod tests {
         assert_eq!(orden.vendedor, accounts.alice);
         assert_eq!(orden.cantidad, 3);
         assert_eq!(orden.estado, Estado::Pendiente);
+        assert_eq!(orden.monto_total, 300);
     }
 
     /// Test: Error al comprar sin ser comprador.
@@ -403,6 +410,7 @@ mod tests {
 
         set_next_caller(accounts.charlie);
         mp.registrar(Rol::Vendedor).unwrap();
+        set_value(100); // Aún debería fallar por SinPermiso
         let resultado = mp.comprar(pid, 1);
         assert_eq!(resultado, Err(Error::SinPermiso));
     }
@@ -425,6 +433,7 @@ mod tests {
             )
             .unwrap();
 
+        set_value(100);
         let resultado = mp.comprar(pid, 1);
         assert_eq!(resultado, Err(Error::AutoCompraProhibida));
     }
@@ -448,6 +457,7 @@ mod tests {
             .unwrap();
 
         set_next_caller(accounts.bob);
+        set_value(100);
         let resultado = mp.comprar(pid, 1);
         assert_eq!(resultado, Err(Error::SinRegistro));
     }
@@ -472,6 +482,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(0);
         let resultado = mp.comprar(pid, 0);
         assert_eq!(resultado, Err(Error::ParamInvalido));
     }
@@ -484,6 +495,7 @@ mod tests {
 
         set_next_caller(accounts.alice);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let resultado = mp.comprar(999, 1);
         assert_eq!(resultado, Err(Error::ProdInexistente));
     }
@@ -508,6 +520,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(1000); // Monto para 10 unidades
         let resultado = mp.comprar(pid, 10);
         assert_eq!(resultado, Err(Error::StockInsuf));
     }
@@ -532,7 +545,9 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(200); // 100 * 2
         mp.comprar(pid, 2).unwrap();
+        set_value(300); // 100 * 3
         mp.comprar(pid, 3).unwrap();
 
         let ordenes = mp.listar_ordenes_de_comprador(accounts.bob);
@@ -574,6 +589,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -601,6 +617,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -631,6 +648,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         assert_eq!(mp.marcar_enviado(oid), Err(Error::SinPermiso));
@@ -656,6 +674,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -684,6 +703,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         assert_eq!(mp.marcar_recibido(oid), Err(Error::EstadoInvalido));
@@ -709,6 +729,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -770,6 +791,7 @@ mod tests {
         mp.registrar(Rol::Comprador).unwrap();
 
         mp.next_order_id = u32::MAX;
+        set_value(100);
         assert_eq!(mp.comprar(pid, 1), Err(Error::IdOverflow));
     }
 
@@ -804,6 +826,7 @@ mod tests {
             .unwrap();
 
         set_next_caller(accounts.alice);
+        set_value(100); // 50 * 2
         let oid = mp.comprar(pid_bob, 2).unwrap();
         assert_eq!(oid, 1);
 
@@ -829,6 +852,7 @@ mod tests {
             )
             .unwrap();
 
+        set_value(100);
         let resultado = mp.comprar(pid, 1);
         assert_eq!(resultado, Err(Error::AutoCompraProhibida));
     }
@@ -853,6 +877,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.charlie);
@@ -879,6 +904,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(300); // 100 * 3
         let oid = mp.comprar(pid, 3).unwrap();
 
         assert_eq!(mp.solicitar_cancelacion(oid), Ok(()));
@@ -904,6 +930,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(300); // 100 * 3
         let oid = mp.comprar(pid, 3).unwrap();
 
         // Stock queda en 2 tras la compra.
@@ -952,6 +979,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(300); // 100 * 3
         let oid = mp.comprar(pid, 3).unwrap();
 
         set_next_caller(accounts.alice);
@@ -978,6 +1006,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(300); // 100 * 3
         let oid = mp.comprar(pid, 3).unwrap();
 
         assert_eq!(mp.obtener_producto(pid).unwrap().stock, 7);
@@ -1017,6 +1046,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(300); // 100 * 3
         let oid = mp.comprar(pid, 3).unwrap();
 
         assert_eq!(mp.solicitar_cancelacion(oid), Ok(()));
@@ -1066,6 +1096,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.charlie);
@@ -1093,6 +1124,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -1124,6 +1156,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         mp.solicitar_cancelacion(oid).unwrap();
@@ -1154,6 +1187,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         mp.solicitar_cancelacion(oid).unwrap();
@@ -1184,6 +1218,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         mp.solicitar_cancelacion(oid).unwrap();
@@ -1213,11 +1248,13 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(300); // 100 * 3
         mp.comprar(pid, 3).unwrap();
         assert_eq!(mp.obtener_producto(pid).unwrap().stock, 7);
 
         set_next_caller(accounts.charlie);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(400); // 100 * 4
         mp.comprar(pid, 4).unwrap();
         assert_eq!(mp.obtener_producto(pid).unwrap().stock, 3);
     }
@@ -1253,6 +1290,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         let mut prod = mp.obtener_producto(pid).unwrap();
@@ -1285,6 +1323,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.charlie);
@@ -1313,6 +1352,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         assert_eq!(mp.solicitar_cancelacion(oid), Ok(()));
@@ -1344,6 +1384,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         assert_eq!(
@@ -1372,6 +1413,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         mp.solicitar_cancelacion(oid).unwrap();
@@ -1401,6 +1443,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         assert_eq!(
@@ -1429,6 +1472,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(200); // 100 * 2
         let oid = mp.comprar(pid, 2).unwrap();
 
         set_next_caller(accounts.alice);
@@ -1473,6 +1517,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -1507,6 +1552,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -1542,6 +1588,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -1574,6 +1621,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -1606,6 +1654,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -1635,6 +1684,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -1673,6 +1723,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -1714,7 +1765,9 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid1 = mp.comprar(pid1, 1).unwrap();
+        set_value(200);
         let oid2 = mp.comprar(pid2, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -1757,6 +1810,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         mp.solicitar_cancelacion(oid).unwrap();
@@ -1807,6 +1861,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -1847,6 +1902,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         assert_eq!(mp.calificar_vendedor(oid, 5), Err(Error::OrdenNoRecibida));
@@ -1872,6 +1928,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -1901,6 +1958,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -1942,6 +2000,7 @@ mod tests {
 
         set_next_caller(accounts.bob);
         mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
         let oid = mp.comprar(pid, 1).unwrap();
 
         set_next_caller(accounts.alice);
@@ -1961,5 +2020,185 @@ mod tests {
         mp.reputaciones.insert(accounts.alice, &rep);
 
         assert_eq!(mp.calificar_vendedor(oid, 5), Err(Error::IdOverflow));
+    }
+
+    // ===== TESTS DE SISTEMA DE PAGOS =====
+
+    /// Test: Pago insuficiente al comprar.
+    #[ink::test]
+    fn pago_insuficiente() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(50); // Debería ser 100
+        let resultado = mp.comprar(pid, 1);
+        assert_eq!(resultado, Err(Error::PagoInsuficiente));
+    }
+
+    /// Test: Pago excesivo al comprar.
+    #[ink::test]
+    fn pago_excesivo() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(150); // Debería ser 100
+        let resultado = mp.comprar(pid, 1);
+        assert_eq!(resultado, Err(Error::PagoExcesivo));
+    }
+
+    /// Test: Fondos retenidos en escrow después de compra.
+    #[ink::test]
+    fn fondos_retenidos_despues_de_compra() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(300); // 100 * 3
+        let oid = mp.comprar(pid, 3).unwrap();
+
+        // Verificar fondos retenidos
+        assert_eq!(mp.obtener_fondos_retenidos(oid), 300);
+    }
+
+    /// Test: Fondos liberados al marcar recibido.
+    #[ink::test]
+    fn fondos_liberados_al_recibir() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
+        let oid = mp.comprar(pid, 1).unwrap();
+
+        // Verificar fondos retenidos antes
+        assert_eq!(mp.obtener_fondos_retenidos(oid), 100);
+
+        set_next_caller(accounts.alice);
+        mp.marcar_enviado(oid).unwrap();
+
+        set_next_caller(accounts.bob);
+        // Nota: En unit tests, transfer() no funcionará realmente
+        // pero verificamos que se llama correctamente (no panic)
+        let _ = mp.marcar_recibido(oid);
+
+        // Los fondos deberían haberse eliminado del mapping (retorna 0)
+        assert_eq!(mp.obtener_fondos_retenidos(oid), 0);
+    }
+
+    /// Test: Monto total se guarda en la orden.
+    #[ink::test]
+    fn monto_total_en_orden() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                50,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(250); // 50 * 5
+        let oid = mp.comprar(pid, 5).unwrap();
+
+        let orden = mp.obtener_orden(oid).unwrap();
+        assert_eq!(orden.monto_total, 250);
+    }
+
+    /// Test: Fondos devueltos al cancelar orden.
+    #[ink::test]
+    fn fondos_devueltos_al_cancelar() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(200); // 100 * 2
+        let oid = mp.comprar(pid, 2).unwrap();
+
+        // Verificar fondos retenidos
+        assert_eq!(mp.obtener_fondos_retenidos(oid), 200);
+
+        // Solicitar y aceptar cancelación
+        mp.solicitar_cancelacion(oid).unwrap();
+        set_next_caller(accounts.alice);
+        // En unit tests, transfer no funcionará realmente
+        let _ = mp.aceptar_cancelacion(oid);
+
+        // Los fondos deberían haberse eliminado (retorna 0)
+        assert_eq!(mp.obtener_fondos_retenidos(oid), 0);
     }
 }

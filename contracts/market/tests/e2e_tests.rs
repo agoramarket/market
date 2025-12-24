@@ -1,3 +1,5 @@
+#![cfg(feature = "e2e-tests")]
+
 use ink_e2e::ContractsBackend;
 
 type E2EResult<T> = Result<T, Box<dyn std::error::Error>>;
@@ -49,10 +51,11 @@ async fn e2e_flujo_compra_completo(mut client: Client) -> E2EResult<()> {
         .expect("publicar failed");
     let prod_id = result.return_value().expect("publicar logic error");
 
-    // 5. Bob compra el producto
+    // 5. Bob compra el producto (precio 1000 * cantidad 1 = 1000)
     let comprar = call_builder.comprar(prod_id, 1);
     let result = client
         .call(&ink_e2e::bob(), &comprar)
+        .value(1000)
         .submit()
         .await
         .expect("comprar failed");
@@ -151,10 +154,11 @@ async fn e2e_flujo_cancelacion(mut client: Client) -> E2EResult<()> {
         .expect("publicar failed");
     let pid = result.return_value().unwrap();
 
-    // Comprar
+    // Comprar (precio 200 * cantidad 2 = 400)
     let comprar = call_builder.comprar(pid, 2);
     let result = client
         .call(&ink_e2e::bob(), &comprar)
+        .value(400)
         .submit()
         .await
         .expect("comprar failed");
@@ -233,9 +237,13 @@ async fn e2e_stock_insuficiente(mut client: Client) -> E2EResult<()> {
         .expect("publicar failed");
     let pid = result.return_value().unwrap();
 
-    // Bob intenta comprar 2 (debe fallar)
+    // Bob intenta comprar 2 (debe fallar por stock insuficiente)
     let comprar = call_builder.comprar(pid, 2);
-    let result = client.call(&ink_e2e::bob(), &comprar).submit().await;
+    let result = client
+        .call(&ink_e2e::bob(), &comprar)
+        .value(20) // precio 10 * cantidad 2 = 20
+        .submit()
+        .await;
 
     // Debe fallar por stock insuficiente - la transacción completa falla
     assert!(

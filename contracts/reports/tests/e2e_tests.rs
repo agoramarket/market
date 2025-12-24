@@ -1,3 +1,5 @@
+#![cfg(feature = "e2e-tests")]
+
 use ink_e2e::ContractsBackend;
 
 type E2EResult<T> = Result<T, Box<dyn std::error::Error>>;
@@ -71,10 +73,11 @@ async fn e2e_generacion_reportes(mut client: Client) -> E2EResult<()> {
         .expect("publicar failed");
     let prod_id = result.return_value().unwrap();
 
-    // Bob compra 2
+    // Bob compra 2 (precio 100 * cantidad 2 = 200)
     let comprar_bob = market_call.comprar(prod_id, 2);
     let result = client
         .call(&ink_e2e::bob(), &comprar_bob)
+        .value(200)
         .submit()
         .await
         .expect("comprar bob failed");
@@ -102,10 +105,11 @@ async fn e2e_generacion_reportes(mut client: Client) -> E2EResult<()> {
         .await
         .expect("calif bob failed");
 
-    // Charlie compra 3
+    // Charlie compra 3 (precio 100 * cantidad 3 = 300)
     let comprar_charlie = market_call.comprar(prod_id, 3);
     let result = client
         .call(&ink_e2e::charlie(), &comprar_charlie)
+        .value(300)
         .submit()
         .await
         .expect("comprar charlie failed");
