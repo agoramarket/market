@@ -2,9 +2,10 @@
 name = "reports"
 version = "0.1.0"
 authors = ["The Agora Developers"]
-description = "A decentralized marketplace smart contract built with ink!"
+description = "Contrato de reportes y estadísticas del marketplace Ágora: rankings de reputación, productos más vendidos y métricas por categoría."
 repository = "https://github.com/agoramarket/market"
 edition = "2021"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 ink = { version = "5.1.1", default-features = false }

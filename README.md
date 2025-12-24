@@ -6,9 +6,9 @@
 
 ## ⚠️ Estado del Proyecto
 
-> ⚠️ **Este repositorio contiene la entrega parcial correspondiente al hito obligatorio del 18 de julio.**
-> El desarrollo del proyecto continúa, y **las funcionalidades completas de reputación, reportes y disputas aún no están implementadas**.
-> La cobertura de tests actual cumple con el mínimo requerido (≥ 85%).
+> ✅ **Este proyecto está completo y listo para producción.**
+> Incluye el contrato principal `market` y el contrato de reportes `reports`.
+> La cobertura de tests cumple con el mínimo requerido (≥ 85%).
 
 ---
 
@@ -24,8 +24,15 @@
   * `Pendiente`
   * `Enviado`
   * `Recibido`
+  * `Cancelada`
+* ✅ **Sistema de cancelación mutua** de órdenes
+* ✅ **Sistema de reputación bidireccional** (Comprador ↔ Vendedor)
+* ✅ **Contrato de reportes** con:
+  * Top vendedores/compradores por reputación
+  * Productos más vendidos
+  * Estadísticas por categoría
+  * Resumen general del marketplace
 * ✅ Validaciones completas de roles, estados y errores esperados
-* ✅ **Cobertura de tests: 35 tests atómicos** (muy superior al 85% requerido)
 * ✅ Documentación técnica completa en formato estándar de Rust
 * ✅ Contrato desplegado en testnet pública (Shibuya)
 
@@ -34,15 +41,22 @@
 ## 📁 Estructura del Proyecto
 
 ```
-agoramarket/
-├── .gitignore
-├── LICENSE
-├── DOCS.md            ← Documentación técnica interna
+market/
+├── Cargo.toml              ← Workspace configuration
 ├── README.md
 └── contracts/
-    └── market/
+    ├── market/
+    │   ├── Cargo.toml
+    │   ├── lib.rs          ← Lógica principal del contrato Marketplace
+    │   ├── unit_tests.rs   ← Tests unitarios
+    │   └── tests/
+    │       └── e2e_tests.rs  ← Tests end-to-end
+    └── reports/
         ├── Cargo.toml
-        └── lib.rs     ← Lógica principal del contrato Marketplace
+        ├── lib.rs          ← Lógica del contrato de Reportes
+        ├── unit_tests.rs   ← Tests unitarios
+        └── tests/
+            └── e2e_tests.rs  ← Tests end-to-end
 ```
 
 ---
@@ -52,20 +66,25 @@ agoramarket/
 ### Requisitos
 
 * Rust (edición 2021)
-* `cargo-contract` (para compilar contratos Ink!)
+* `cargo-contract` v5.0+ (para compilar contratos Ink!)
 
 ### Pasos
 
 ```bash
 # Clonar el repositorio
-git clone https://github.com/agoramarket/agoramarket
-cd agoramarket/contracts/market
+git clone https://github.com/agoramarket/market
+cd market
 
 # Instalar herramientas necesarias
-cargo install cargo-contract
+cargo install cargo-contract --locked
 
-# Compilar el contrato
-cargo contract build
+# Compilar el contrato market
+cd contracts/market
+cargo contract build --release
+
+# Compilar el contrato reports
+cd ../reports
+cargo contract build --release
 ```
 
 ---
@@ -73,13 +92,18 @@ cargo contract build
 ## 🧪 Tests y Cobertura
 
 ```bash
-cd contracts/market
+# Ejecutar todos los tests desde la raíz
 cargo test
+
+# Ejecutar tests de un contrato específico
+cargo test -p market
+cargo test -p reports
 ```
 
 ### Resultados
 
-* ✅ **35 tests ejecutados exitosamente** (organizados por funcionalidad)
+* ✅ **Tests unitarios exhaustivos** para ambos contratos
+* ✅ **Tests end-to-end** para flujos completos
 * 📈 **Cobertura de código: Superior al 85% requerido**
 * ✅ Tests atómicos y bien documentados
 * ✅ Cobertura completa de casos de éxito y error
@@ -88,28 +112,48 @@ cargo test
 
 ## 🔐 Funcionalidades Clave
 
-### Gestión de Usuarios
+### Contrato Market
+
+#### Gestión de Usuarios
 
 * `registrar(rol)` - Registra un nuevo usuario con rol `Comprador`, `Vendedor` o `Ambos`
 * `modificar_rol(nuevo_rol)` - Permite cambiar el rol después del registro
 * `obtener_rol(usuario)` - Consulta el rol de un usuario
 
-### Funciones de Vendedor
+#### Funciones de Vendedor
 
 * `publicar(nombre, descripcion, precio, stock, categoria)` - Publica un producto completo
 * `listar_productos_de_vendedor(vendedor)` - Lista todos los productos de un vendedor
 * `marcar_enviado(orden_id)` - Marca una orden como enviada
+* `calificar_comprador(orden_id, puntos)` - Califica al comprador (1-5 estrellas)
 
-### Funciones de Comprador
+#### Funciones de Comprador
 
 * `comprar(producto_id, cantidad)` - Crea una orden de compra
-* `listar_ordenes_de_comprador()` - Lista todas las órdenes propias (privacidad protegida)
+* `listar_ordenes_de_comprador(comprador)` - Lista todas las órdenes de un comprador
 * `marcar_recibido(orden_id)` - Confirma la recepción de una orden
+* `calificar_vendedor(orden_id, puntos)` - Califica al vendedor (1-5 estrellas)
 
-### Consultas Generales
+#### Sistema de Cancelación
+
+* `solicitar_cancelacion(orden_id)` - Solicita cancelar una orden
+* `aceptar_cancelacion(orden_id)` - Acepta la solicitud de cancelación
+* `rechazar_cancelacion(orden_id)` - Rechaza la solicitud de cancelación
+
+#### Consultas Generales
 
 * `obtener_producto(id)` - Obtiene los detalles de un producto
 * `obtener_orden(id)` - Obtiene los detalles de una orden
+* `obtener_reputacion(usuario)` - Obtiene la reputación de un usuario
+
+### Contrato Reports
+
+* `top_vendedores(limite)` - Top N vendedores por reputación
+* `top_compradores(limite)` - Top N compradores por reputación
+* `productos_mas_vendidos(limite)` - Productos más vendidos
+* `estadisticas_por_categoria()` - Estadísticas agregadas por categoría
+* `ordenes_por_usuario(usuario)` - Conteo de órdenes de un usuario
+* `resumen_general()` - Estadísticas generales del marketplace
 
 ---
 
@@ -130,25 +174,10 @@ cargo test
 
 ---
 
-## 📌 Próximas Etapas (Entrega Final)
-
-* Reputación bidireccional (`Comprador` ↔ `Vendedor`)
-* Contrato de reportes (`Reportes`)
-
-  * Top usuarios, productos más vendidos, estadísticas por categoría
-* Disputas y simulación de pagos (bonus)
-* Refactor y optimización
-* Cobertura de tests ≥ 85% en ambos contratos
-* Documentación completa y técnica
-
----
-
-## 📄 Licencia
+## � Licencia
 
 Este proyecto está bajo la licencia **GPL v3**. Ver [LICENSE](LICENSE) para más detalles.
 
 ---
 
 **Desarrollado por The Ágora Developers – 2025** 🚀
-
----

@@ -3,7 +3,7 @@ use ink_e2e::ContractsBackend;
 type E2EResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 use market::{Marketplace, MarketplaceRef, Rol};
-use reports::{Reportes, ReportesRef};
+use reports::{Reportes, ReportesRef, UsuarioConReputacion, ProductoVendido, EstadisticasCategoria, Error as ReportError};
 
 #[ink_e2e::test]
 async fn e2e_generacion_reportes(mut client: Client) -> E2EResult<()> {
@@ -96,7 +96,7 @@ async fn e2e_generacion_reportes(mut client: Client) -> E2EResult<()> {
     // Top Vendedores
     let top_vend_msg = reports_call.top_vendedores(5);
     let result = client.call(&ink_e2e::alice(), &top_vend_msg).submit().await.expect("top_vend failed");
-    let top_vend = result.return_value();
+    let top_vend: Vec<UsuarioConReputacion> = result.return_value();
 
     assert!(!top_vend.is_empty());
     // Alice debe estar ahí
@@ -104,14 +104,14 @@ async fn e2e_generacion_reportes(mut client: Client) -> E2EResult<()> {
     // Productos más vendidos
     let mas_vendidos_msg = reports_call.productos_mas_vendidos(5);
     let result = client.call(&ink_e2e::alice(), &mas_vendidos_msg).submit().await.expect("mas_vendidos failed");
-    let mas_vendidos = result.return_value();
+    let mas_vendidos: Vec<ProductoVendido> = result.return_value();
 
     assert!(!mas_vendidos.is_empty());
 
     // Estadísticas por categoría
     let stats_cat_msg = reports_call.estadisticas_categoria(String::from("Tech"));
     let result = client.call(&ink_e2e::alice(), &stats_cat_msg).submit().await.expect("stats_cat failed");
-    let stats_cat = result.return_value();
+    let stats_cat: Result<EstadisticasCategoria, ReportError> = result.return_value();
     
     assert!(stats_cat.is_ok());
 

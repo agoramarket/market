@@ -2,14 +2,15 @@
 name = "market"
 version = "0.1.0"
 authors = ["The Agora Developers"]
-description = "A decentralized marketplace smart contract built with ink!"
+description = "Contrato principal del marketplace descentralizado Ágora: gestión de usuarios, productos, órdenes y reputación."
 repository = "https://github.com/agoramarket/market"
 edition = "2021"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 ink = { version = "5.1.1", default-features = false }
-scale = { package = "parity-scale-codec", version = "3.6", default-features = false, features = ["derive"] }
-scale-info = { version = "2.10", default-features = false, features = ["derive"] }
+scale = { package = "parity-scale-codec", version = "3.7", default-features = false, features = ["derive"] }
+scale-info = { version = "2.11", default-features = false, features = ["derive"] }
 
 [dev-dependencies]
 ink_e2e = { version = "5.1.1" }

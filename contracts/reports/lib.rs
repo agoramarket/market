@@ -579,7 +579,7 @@ mod reportes {
     include!("unit_tests.rs");
 }
 
-#[cfg(feature = "ink-as-dependency")]
+#[cfg(any(feature = "ink-as-dependency", feature = "e2e-tests"))]
 pub use reportes::{
     Error, EstadisticasCategoria, OrdenesUsuario, ProductoVendido, Reportes, ReportesRef,
     UsuarioConReputacion,
