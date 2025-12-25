@@ -460,20 +460,62 @@ mod reportes {
                 .collect()
         }
 
-        /// Lógica interna para estadísticas de una categoría.
+        /// Lógica interna para estadísticas de una categoría específica.
+        #[allow(clippy::arithmetic_side_effects)]
         fn _estadisticas_categoria(
             &self,
             categoria: String,
         ) -> Result<EstadisticasCategoria, Error> {
-            let todas = self._estadisticas_por_categoria();
+            let marketplace = self.marketplace();
+            let productos = marketplace.listar_todos_productos();
+            let ordenes = marketplace.listar_todas_ordenes();
 
-            for stat in todas {
-                if stat.categoria == categoria {
-                    return Ok(stat);
+            let mut cantidad_productos: u32 = 0;
+            let mut total_ventas: u32 = 0;
+            let mut total_unidades: u32 = 0;
+
+            for (_pid, producto) in &productos {
+                if producto.categoria == categoria {
+                    cantidad_productos = cantidad_productos.saturating_add(1);
                 }
             }
 
-            Err(Error::CategoriaNoEncontrada)
+            if cantidad_productos == 0 {
+                return Err(Error::CategoriaNoEncontrada);
+            }
+
+            for (_oid, orden) in &ordenes {
+                if orden.estado == Estado::Recibido {
+                    if let Some(producto) = productos
+                        .iter()
+                        .find(|(pid, _)| *pid == orden.id_prod)
+                        .map(|(_, p)| p)
+                    {
+                        if producto.categoria == categoria {
+                            total_ventas = total_ventas.saturating_add(1);
+                            total_unidades = total_unidades.saturating_add(orden.cantidad);
+                        }
+                    }
+                }
+            }
+
+            let (suma_calif, cant_calif) = marketplace
+                .obtener_calificacion_categoria(categoria.clone())
+                .unwrap_or((0, 0));
+
+            let calificacion_promedio_x100 = if cant_calif > 0 {
+                suma_calif.saturating_mul(100).saturating_div(cant_calif)
+            } else {
+                0
+            };
+
+            Ok(EstadisticasCategoria {
+                categoria,
+                total_ventas,
+                total_unidades,
+                calificacion_promedio_x100,
+                cantidad_productos,
+            })
         }
 
         /// Lógica interna para órdenes por usuario.
