@@ -130,7 +130,7 @@ mod marketplace {
     }
 
     /// Representa el estado de calificaciones para una orden.
-    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Default)]
     #[cfg_attr(
         feature = "std",
         derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
@@ -919,14 +919,6 @@ mod marketplace {
 
             self.fondos_retenidos.insert(oid, &monto_total);
 
-            self.calificaciones.insert(
-                oid,
-                &CalificacionOrden {
-                    comprador_califico: false,
-                    vendedor_califico: false,
-                },
-            );
-
             Ok(oid)
         }
 
@@ -1182,10 +1174,7 @@ mod marketplace {
             self.ensure(orden.estado == Estado::Recibido, Error::OrdenNoRecibida)?;
             self.ensure((1..=5).contains(&puntos), Error::CalificacionInvalida)?;
 
-            let mut calif = self.calificaciones.get(oid).unwrap_or(CalificacionOrden {
-                comprador_califico: false,
-                vendedor_califico: false,
-            });
+            let mut calif = self.calificaciones.get(oid).unwrap_or_default();
             self.ensure(!calif.comprador_califico, Error::YaCalificado)?;
 
             calif.comprador_califico = true;
@@ -1245,10 +1234,7 @@ mod marketplace {
             self.ensure(orden.estado == Estado::Recibido, Error::OrdenNoRecibida)?;
             self.ensure((1..=5).contains(&puntos), Error::CalificacionInvalida)?;
 
-            let mut calif = self.calificaciones.get(oid).unwrap_or(CalificacionOrden {
-                comprador_califico: false,
-                vendedor_califico: false,
-            });
+            let mut calif = self.calificaciones.get(oid).unwrap_or_default();
             self.ensure(!calif.vendedor_califico, Error::YaCalificado)?;
 
             calif.vendedor_califico = true;
