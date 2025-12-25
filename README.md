@@ -156,17 +156,29 @@ cargo test -p reports
 #### Consultas Generales
 
 * `obtener_producto(id)` - Obtiene los detalles de un producto
-* `obtener_orden(id)` - Obtiene los detalles de una orden
+* `obtener_orden(id)` - Obtiene los detalles de una orden (solo comprador/vendedor)
+* `obtener_orden_publica(id)` - Obtiene una orden sin restricción de permisos
 * `obtener_reputacion(usuario)` - Obtiene la reputación de un usuario
+* `obtener_calificacion_categoria(categoria)` - Obtiene calificaciones agregadas de una categoría
+* `listar_usuarios()` - Lista todos los usuarios registrados
+* `listar_todos_productos()` - Lista todos los productos publicados
+* `listar_todas_ordenes()` - Lista todas las órdenes creadas
+* `listar_todas_reputaciones()` - Lista todas las reputaciones de usuarios
+* `get_total_productos()` - Obtiene el total de productos
+* `get_total_ordenes()` - Obtiene el total de órdenes
 
 ### Contrato Reports
 
+* `get_marketplace()` - Obtiene la dirección del contrato Marketplace asociado
 * `top_vendedores(limite)` - Top N vendedores por reputación
 * `top_compradores(limite)` - Top N compradores por reputación
 * `productos_mas_vendidos(limite)` - Productos más vendidos
 * `estadisticas_por_categoria()` - Estadísticas agregadas por categoría
+* `estadisticas_categoria(categoria)` - Estadísticas de una categoría específica
 * `ordenes_por_usuario(usuario)` - Conteo de órdenes de un usuario
+* `resumen_ordenes_todos_usuarios()` - Resumen de órdenes de todos los usuarios activos
 * `resumen_general()` - Estadísticas generales del marketplace
+* `listar_categorias()` - Lista todas las categorías disponibles
 
 ---
 

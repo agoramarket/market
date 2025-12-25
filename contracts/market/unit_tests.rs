@@ -2511,4 +2511,244 @@ mod tests {
         let reputaciones = mp.listar_todas_reputaciones();
         assert_eq!(reputaciones.len(), 2);
     }
+
+    /// Test: Calificar comprador con puntos inválidos (0) falla.
+    #[ink::test]
+    fn calificar_comprador_puntos_invalidos_cero() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
+        let oid = mp.comprar(pid, 1).unwrap();
+
+        set_next_caller(accounts.alice);
+        mp.marcar_enviado(oid).unwrap();
+        set_next_caller(accounts.bob);
+        let _ = mp.marcar_recibido(oid);
+
+        // Vendedor intenta calificar con 0 puntos
+        set_next_caller(accounts.alice);
+        let resultado = mp.calificar_comprador(oid, 0);
+        assert_eq!(resultado, Err(Error::CalificacionInvalida));
+    }
+
+    /// Test: Calificar comprador con puntos inválidos (6) falla.
+    #[ink::test]
+    fn calificar_comprador_puntos_invalidos_seis() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
+        let oid = mp.comprar(pid, 1).unwrap();
+
+        set_next_caller(accounts.alice);
+        mp.marcar_enviado(oid).unwrap();
+        set_next_caller(accounts.bob);
+        let _ = mp.marcar_recibido(oid);
+
+        // Vendedor intenta calificar con 6 puntos
+        set_next_caller(accounts.alice);
+        let resultado = mp.calificar_comprador(oid, 6);
+        assert_eq!(resultado, Err(Error::CalificacionInvalida));
+    }
+
+    /// Test: Vendedor intenta calificar al comprador dos veces falla.
+    #[ink::test]
+    fn calificar_comprador_doble_falla() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
+        let oid = mp.comprar(pid, 1).unwrap();
+
+        set_next_caller(accounts.alice);
+        mp.marcar_enviado(oid).unwrap();
+        set_next_caller(accounts.bob);
+        let _ = mp.marcar_recibido(oid);
+
+        // Primera calificación exitosa
+        set_next_caller(accounts.alice);
+        assert!(mp.calificar_comprador(oid, 5).is_ok());
+
+        // Segunda calificación debe fallar
+        let resultado = mp.calificar_comprador(oid, 4);
+        assert_eq!(resultado, Err(Error::YaCalificado));
+    }
+
+    /// Test: Comprar exactamente todo el stock disponible.
+    #[ink::test]
+    fn comprar_todo_el_stock() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                5, // Solo 5 unidades
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(500); // 100 * 5
+        let oid = mp.comprar(pid, 5);
+        assert!(oid.is_ok());
+
+        // Verificar que no queda stock
+        let producto = mp.obtener_producto(pid).unwrap();
+        assert_eq!(producto.stock, 0);
+
+        // Intentar comprar más debe fallar
+        set_value(100);
+        let resultado = mp.comprar(pid, 1);
+        assert_eq!(resultado, Err(Error::StockInsuf));
+    }
+
+    /// Test: Obtener producto con id = 0 (no existe).
+    #[ink::test]
+    fn obtener_producto_id_cero() {
+        let mp = Marketplace::new();
+        let resultado = mp.obtener_producto(0);
+        assert!(resultado.is_none());
+    }
+
+    /// Test: Obtener orden con id = 0 (no existe).
+    #[ink::test]
+    fn obtener_orden_id_cero() {
+        let accounts = get_accounts();
+        let mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        let resultado = mp.obtener_orden(0);
+        assert_eq!(resultado, Err(Error::OrdenInexistente));
+    }
+
+    /// Test: Rechazar cancelación de orden inexistente falla.
+    #[ink::test]
+    fn rechazar_cancelacion_orden_inexistente() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        let resultado = mp.rechazar_cancelacion(999);
+        assert_eq!(resultado, Err(Error::CancelacionInexistente));
+    }
+
+    /// Test: Publicar producto con nombre de longitud máxima (64 chars).
+    #[ink::test]
+    fn publicar_producto_nombre_longitud_maxima() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+
+        let nombre_64_chars = "A".repeat(64);
+        let resultado = mp.publicar(
+            nombre_64_chars,
+            "Desc".to_string(),
+            100,
+            10,
+            "Cat".to_string(),
+        );
+        assert!(resultado.is_ok());
+    }
+
+    /// Test: Re-solicitar cancelación después de que fue rechazada.
+    #[ink::test]
+    fn resolicitar_cancelacion_despues_de_rechazo() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
+        let oid = mp.comprar(pid, 1).unwrap();
+
+        // Comprador solicita cancelación
+        mp.solicitar_cancelacion(oid).unwrap();
+
+        // Vendedor rechaza
+        set_next_caller(accounts.alice);
+        mp.rechazar_cancelacion(oid).unwrap();
+
+        // Comprador puede re-solicitar
+        set_next_caller(accounts.bob);
+        let resultado = mp.solicitar_cancelacion(oid);
+        assert!(resultado.is_ok());
+    }
+
+    /// Test: Modificar rol al mismo rol actual (válido).
+    #[ink::test]
+    fn modificar_rol_al_mismo_rol() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+
+        // Modificar al mismo rol debería ser válido
+        let resultado = mp.modificar_rol(Rol::Vendedor);
+        assert!(resultado.is_ok());
+        assert_eq!(mp.obtener_rol(accounts.alice), Some(Rol::Vendedor));
+    }
 }

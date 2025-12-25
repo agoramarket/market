@@ -841,4 +841,75 @@ mod tests {
         let error = Error::CategoriaNoEncontrada;
         let _debug_str = format!("{:?}", error);
     }
+
+    // ==================== TESTS DE EDGE CASES ====================
+
+    #[ink::test]
+    fn test_procesar_top_vendedores_limite_cero() {
+        let reputaciones = vec![
+            (cuenta(1), crear_reputacion((20, 5), (0, 0))),
+            (cuenta(2), crear_reputacion((15, 3), (0, 0))),
+        ];
+
+        let resultado = Reportes::_procesar_top_vendedores(reputaciones, 0);
+        assert!(resultado.is_empty());
+    }
+
+    #[ink::test]
+    fn test_procesar_top_compradores_limite_cero() {
+        let reputaciones = vec![
+            (cuenta(1), crear_reputacion((0, 0), (20, 5))),
+            (cuenta(2), crear_reputacion((0, 0), (15, 3))),
+        ];
+
+        let resultado = Reportes::_procesar_top_compradores(reputaciones, 0);
+        assert!(resultado.is_empty());
+    }
+
+    #[ink::test]
+    fn test_procesar_productos_mas_vendidos_limite_cero() {
+        let ordenes = vec![(1u32, crear_orden(1, 2, 1, 5, Estado::Recibido))];
+        let productos = vec![(1u32, crear_producto(2, "Prod", "Cat", 100))];
+
+        let resultado = Reportes::_procesar_productos_mas_vendidos(ordenes, productos, 0);
+        assert!(resultado.is_empty());
+    }
+
+    #[ink::test]
+    fn test_procesar_estadisticas_categoria_ordenes_canceladas_no_cuentan() {
+        let productos = vec![(1u32, crear_producto(1, "Prod", "Cat", 100))];
+        let ordenes = vec![
+            (1u32, crear_orden(2, 1, 1, 5, Estado::Cancelada)),
+            (2u32, crear_orden(3, 1, 1, 3, Estado::Recibido)),
+        ];
+
+        let resultado = Reportes::_procesar_estadisticas_categoria(
+            productos,
+            ordenes,
+            String::from("Cat"),
+            (20, 5),
+        );
+
+        assert!(resultado.is_ok());
+        let stats = resultado.unwrap();
+        // Solo la orden Recibido cuenta
+        assert_eq!(stats.total_ventas, 1);
+        assert_eq!(stats.total_unidades, 3);
+    }
+
+    #[ink::test]
+    fn test_procesar_resumen_general_ordenes_canceladas_no_cuentan() {
+        let ordenes = vec![
+            (1u32, crear_orden(1, 2, 1, 5, Estado::Cancelada)),
+            (2u32, crear_orden(1, 2, 1, 3, Estado::Recibido)),
+            (3u32, crear_orden(1, 2, 1, 2, Estado::Pendiente)),
+        ];
+
+        let resultado = Reportes::_procesar_resumen_general(5, 10, ordenes);
+
+        assert_eq!(resultado.0, 5);  // total usuarios
+        assert_eq!(resultado.1, 10); // total productos
+        assert_eq!(resultado.2, 3);  // total órdenes
+        assert_eq!(resultado.3, 1);  // solo 1 completada (Recibido)
+    }
 }
