@@ -1977,7 +1977,7 @@ mod tests {
         rep.como_vendedor = (u32::MAX - 2, 1);
         mp.reputaciones.insert(accounts.alice, &rep);
 
-        assert_eq!(mp.calificar_vendedor(oid, 5), Err(Error::IdOverflow));
+        assert_eq!(mp.calificar_vendedor(oid, 5), Err(Error::OverflowAritmetico));
     }
 
     /// Test: Overflow en cantidad de calificaciones.
@@ -2019,7 +2019,7 @@ mod tests {
         rep.como_vendedor = (10, u32::MAX);
         mp.reputaciones.insert(accounts.alice, &rep);
 
-        assert_eq!(mp.calificar_vendedor(oid, 5), Err(Error::IdOverflow));
+        assert_eq!(mp.calificar_vendedor(oid, 5), Err(Error::OverflowAritmetico));
     }
 
     // ===== TESTS DE SISTEMA DE PAGOS =====

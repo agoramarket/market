@@ -171,6 +171,8 @@ mod marketplace {
         EstadoInvalido,
         /// El contador de IDs ha alcanzado su valor máximo y no se pueden crear más elementos.
         IdOverflow,
+        /// Se produjo un overflow en una operación aritmética (por ejemplo, al calcular montos o sumar calificaciones).
+        OverflowAritmetico,
         /// Ya existe una solicitud de cancelación pendiente para esta orden.
         CancelacionYaPendiente,
         /// No existe una solicitud de cancelación pendiente para esta orden.
@@ -895,7 +897,7 @@ mod marketplace {
             let monto_total = producto
                 .precio
                 .checked_mul(cant as Balance)
-                .ok_or(Error::IdOverflow)?;
+                .ok_or(Error::OverflowAritmetico)?;
 
             self.ensure(monto_enviado >= monto_total, Error::PagoInsuficiente)?;
             self.ensure(monto_enviado <= monto_total, Error::PagoExcesivo)?;
@@ -1201,12 +1203,12 @@ mod marketplace {
                 .como_vendedor
                 .0
                 .checked_add(puntos as u32)
-                .ok_or(Error::IdOverflow)?;
+                .ok_or(Error::OverflowAritmetico)?;
             rep.como_vendedor.1 = rep
                 .como_vendedor
                 .1
                 .checked_add(1)
-                .ok_or(Error::IdOverflow)?;
+                .ok_or(Error::OverflowAritmetico)?;
 
             self.reputaciones.insert(orden.vendedor, &rep);
 
@@ -1222,8 +1224,8 @@ mod marketplace {
             cat_rep.0 = cat_rep
                 .0
                 .checked_add(puntos as u32)
-                .ok_or(Error::IdOverflow)?;
-            cat_rep.1 = cat_rep.1.checked_add(1).ok_or(Error::IdOverflow)?;
+                .ok_or(Error::OverflowAritmetico)?;
+            cat_rep.1 = cat_rep.1.checked_add(1).ok_or(Error::OverflowAritmetico)?;
             self.calificaciones_por_categoria
                 .insert(producto.categoria, &cat_rep);
 
@@ -1264,12 +1266,12 @@ mod marketplace {
                 .como_comprador
                 .0
                 .checked_add(puntos as u32)
-                .ok_or(Error::IdOverflow)?;
+                .ok_or(Error::OverflowAritmetico)?;
             rep.como_comprador.1 = rep
                 .como_comprador
                 .1
                 .checked_add(1)
-                .ok_or(Error::IdOverflow)?;
+                .ok_or(Error::OverflowAritmetico)?;
 
             self.reputaciones.insert(orden.comprador, &rep);
 
