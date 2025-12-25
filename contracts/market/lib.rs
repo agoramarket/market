@@ -986,8 +986,8 @@ mod marketplace {
         ///
         /// ## Flujo de liberación de fondos
         /// 1. Valida permisos y estado de la orden
-        /// 2.Actualiza el estado de la orden y limpia datos internos
-        /// 3.Transfiere los fondos al vendedor
+        /// 2. Actualiza el estado de la orden y limpia datos internos
+        /// 3. Transfiere los fondos al vendedor
         fn _marcar_recibido(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let mut orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             self.ensure(orden.comprador == caller, Error::SinPermiso)?;

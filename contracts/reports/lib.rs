@@ -175,7 +175,7 @@ mod reportes {
         ///
         /// # Nota
         ///
-        /// Se consideran todas las órdenes excepto las canceladas.
+        /// Solo se consideran órdenes en estado `Recibido` (completadas).
         #[ink(message)]
         pub fn productos_mas_vendidos(&self, limite: u32) -> Vec<ProductoVendido> {
             self._productos_mas_vendidos(limite)
