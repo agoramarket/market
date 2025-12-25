@@ -20,7 +20,7 @@ mod reportes {
     use ink::prelude::vec::Vec;
     use scale::{Decode, Encode};
 
-    use market::{Estado, MarketplaceRef};
+    use market::{Estado, MarketplaceRef, Orden, Producto, ReputacionUsuario};
 
     /// Representa un usuario con su reputación calculada.
     #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
@@ -278,11 +278,20 @@ mod reportes {
         /// Utiliza `listar_todas_reputaciones` para obtener todos los datos en una sola llamada
         /// externa (O(1) llamadas de red), en lugar de iterar y llamar por cada usuario (O(N)).
         /// El filtrado y ordenamiento se realizan localmente en memoria.
-        #[allow(clippy::arithmetic_side_effects)]
         fn _top_vendedores(&self, limite: u32) -> Vec<UsuarioConReputacion> {
             let marketplace = self.marketplace();
             let reputaciones = marketplace.listar_todas_reputaciones();
+            Self::_procesar_top_vendedores(reputaciones, limite)
+        }
 
+        /// Procesa las reputaciones y devuelve el top de vendedores.
+        ///
+        /// Función pura que puede ser testeada sin dependencias externas.
+        #[allow(clippy::arithmetic_side_effects)]
+        fn _procesar_top_vendedores(
+            reputaciones: Vec<(AccountId, ReputacionUsuario)>,
+            limite: u32,
+        ) -> Vec<UsuarioConReputacion> {
             let mut resultado: Vec<UsuarioConReputacion> = reputaciones
                 .into_iter()
                 .filter_map(|(usuario, rep)| {
@@ -300,7 +309,7 @@ mod reportes {
                 })
                 .collect();
 
-            self._ordenar_por_reputacion(&mut resultado);
+            Self::_ordenar_por_reputacion(&mut resultado);
             resultado.truncate(limite as usize);
             resultado
         }
@@ -311,11 +320,20 @@ mod reportes {
         /// Utiliza `listar_todas_reputaciones` para obtener todos los datos en una sola llamada
         /// externa (O(1) llamadas de red), en lugar de iterar y llamar por cada usuario (O(N)).
         /// El filtrado y ordenamiento se realizan localmente en memoria.
-        #[allow(clippy::arithmetic_side_effects)]
         fn _top_compradores(&self, limite: u32) -> Vec<UsuarioConReputacion> {
             let marketplace = self.marketplace();
             let reputaciones = marketplace.listar_todas_reputaciones();
+            Self::_procesar_top_compradores(reputaciones, limite)
+        }
 
+        /// Procesa las reputaciones y devuelve el top de compradores.
+        ///
+        /// Función pura que puede ser testeada sin dependencias externas.
+        #[allow(clippy::arithmetic_side_effects)]
+        fn _procesar_top_compradores(
+            reputaciones: Vec<(AccountId, ReputacionUsuario)>,
+            limite: u32,
+        ) -> Vec<UsuarioConReputacion> {
             let mut resultado: Vec<UsuarioConReputacion> = reputaciones
                 .into_iter()
                 .filter_map(|(usuario, rep)| {
@@ -333,7 +351,7 @@ mod reportes {
                 })
                 .collect();
 
-            self._ordenar_por_reputacion(&mut resultado);
+            Self::_ordenar_por_reputacion(&mut resultado);
             resultado.truncate(limite as usize);
             resultado
         }
@@ -345,7 +363,17 @@ mod reportes {
             let marketplace = self.marketplace();
             let ordenes = marketplace.listar_todas_ordenes();
             let productos = marketplace.listar_todos_productos();
+            Self::_procesar_productos_mas_vendidos(ordenes, productos, limite)
+        }
 
+        /// Procesa órdenes y productos para calcular los más vendidos.
+        ///
+        /// Función pura que puede ser testeada sin dependencias externas.
+        fn _procesar_productos_mas_vendidos(
+            ordenes: Vec<(u32, Orden)>,
+            productos: Vec<(u32, Producto)>,
+            limite: u32,
+        ) -> Vec<ProductoVendido> {
             let mut ventas: Vec<(u32, u32)> = Vec::new();
 
             for (_oid, orden) in &ordenes {
@@ -381,12 +409,35 @@ mod reportes {
         /// Lógica interna para estadísticas por categoría.
         ///
         /// Complejidad: O(p + o) donde p = cantidad de productos y o = cantidad de órdenes.
-        #[allow(clippy::arithmetic_side_effects)]
         fn _estadisticas_por_categoria(&self) -> Vec<EstadisticasCategoria> {
             let marketplace = self.marketplace();
             let productos = marketplace.listar_todos_productos();
             let ordenes = marketplace.listar_todas_ordenes();
 
+            let categorias_unicas: Vec<String> = Self::_procesar_listar_categorias(&productos);
+
+            let calificaciones: Vec<(String, (u32, u32))> = categorias_unicas
+                .iter()
+                .map(|cat| {
+                    let calif = marketplace
+                        .obtener_calificacion_categoria(cat.clone())
+                        .unwrap_or((0, 0));
+                    (cat.clone(), calif)
+                })
+                .collect();
+
+            Self::_procesar_estadisticas_por_categoria(productos, ordenes, calificaciones)
+        }
+
+        /// Procesa productos, órdenes y calificaciones para generar estadísticas por categoría.
+        ///
+        /// Función pura que puede ser testeada sin dependencias externas.
+        #[allow(clippy::arithmetic_side_effects)]
+        fn _procesar_estadisticas_por_categoria(
+            productos: Vec<(u32, Producto)>,
+            ordenes: Vec<(u32, Orden)>,
+            calificaciones: Vec<(String, (u32, u32))>,
+        ) -> Vec<EstadisticasCategoria> {
             struct DatosCat {
                 categoria: String,
                 total_ventas: u32,
@@ -434,11 +485,12 @@ mod reportes {
             }
 
             for cat in categorias.iter_mut() {
-                if let Some((suma, cant)) =
-                    marketplace.obtener_calificacion_categoria(cat.categoria.clone())
+                if let Some((_, (suma, cant))) = calificaciones
+                    .iter()
+                    .find(|(nombre, _)| nombre == &cat.categoria)
                 {
-                    cat.suma_calif = suma;
-                    cat.cant_calif = cant;
+                    cat.suma_calif = *suma;
+                    cat.cant_calif = *cant;
                 }
             }
 
@@ -465,7 +517,6 @@ mod reportes {
         }
 
         /// Lógica interna para estadísticas de una categoría específica.
-        #[allow(clippy::arithmetic_side_effects)]
         fn _estadisticas_categoria(
             &self,
             categoria: String,
@@ -473,7 +524,23 @@ mod reportes {
             let marketplace = self.marketplace();
             let productos = marketplace.listar_todos_productos();
             let ordenes = marketplace.listar_todas_ordenes();
+            let calificacion = marketplace
+                .obtener_calificacion_categoria(categoria.clone())
+                .unwrap_or((0, 0));
 
+            Self::_procesar_estadisticas_categoria(productos, ordenes, categoria, calificacion)
+        }
+
+        /// Procesa datos para obtener estadísticas de una categoría específica.
+        ///
+        /// Función pura que puede ser testeada sin dependencias externas.
+        #[allow(clippy::arithmetic_side_effects)]
+        fn _procesar_estadisticas_categoria(
+            productos: Vec<(u32, Producto)>,
+            ordenes: Vec<(u32, Orden)>,
+            categoria: String,
+            calificacion: (u32, u32),
+        ) -> Result<EstadisticasCategoria, Error> {
             let mut cantidad_productos: u32 = 0;
             let mut total_ventas: u32 = 0;
             let mut total_unidades: u32 = 0;
@@ -503,9 +570,7 @@ mod reportes {
                 }
             }
 
-            let (suma_calif, cant_calif) = marketplace
-                .obtener_calificacion_categoria(categoria.clone())
-                .unwrap_or((0, 0));
+            let (suma_calif, cant_calif) = calificacion;
 
             let calificacion_promedio_x100 = if cant_calif > 0 {
                 suma_calif.saturating_mul(100).saturating_div(cant_calif)
@@ -528,7 +593,16 @@ mod reportes {
         fn _ordenes_por_usuario(&self, usuario: AccountId) -> OrdenesUsuario {
             let marketplace = self.marketplace();
             let ordenes = marketplace.listar_todas_ordenes();
+            Self::_procesar_ordenes_por_usuario(ordenes, usuario)
+        }
 
+        /// Procesa órdenes para calcular estadísticas de un usuario específico.
+        ///
+        /// Función pura que puede ser testeada sin dependencias externas.
+        fn _procesar_ordenes_por_usuario(
+            ordenes: Vec<(u32, Orden)>,
+            usuario: AccountId,
+        ) -> OrdenesUsuario {
             let mut resultado = OrdenesUsuario {
                 usuario,
                 ordenes_como_comprador: 0,
@@ -566,7 +640,16 @@ mod reportes {
             let marketplace = self.marketplace();
             let usuarios = marketplace.listar_usuarios();
             let ordenes = marketplace.listar_todas_ordenes();
+            Self::_procesar_resumen_ordenes_todos_usuarios(usuarios, ordenes)
+        }
 
+        /// Procesa usuarios y órdenes para generar resumen de todos los usuarios.
+        ///
+        /// Función pura que puede ser testeada sin dependencias externas.
+        fn _procesar_resumen_ordenes_todos_usuarios(
+            usuarios: Vec<AccountId>,
+            ordenes: Vec<(u32, Orden)>,
+        ) -> Vec<OrdenesUsuario> {
             let mut resultado: Vec<OrdenesUsuario> = Vec::new();
 
             for usuario in usuarios {
@@ -615,7 +698,17 @@ mod reportes {
             let usuarios = marketplace.listar_usuarios();
             let productos = marketplace.listar_todos_productos();
             let ordenes = marketplace.listar_todas_ordenes();
+            Self::_procesar_resumen_general(usuarios.len(), productos.len(), ordenes)
+        }
 
+        /// Procesa datos para generar resumen general del marketplace.
+        ///
+        /// Función pura que puede ser testeada sin dependencias externas.
+        fn _procesar_resumen_general(
+            total_usuarios: usize,
+            total_productos: usize,
+            ordenes: Vec<(u32, Orden)>,
+        ) -> (u32, u32, u32, u32) {
             let mut completadas: u32 = 0;
             for (_oid, orden) in &ordenes {
                 if orden.estado == Estado::Recibido {
@@ -624,8 +717,8 @@ mod reportes {
             }
 
             (
-                u32::try_from(usuarios.len()).unwrap_or(u32::MAX),
-                u32::try_from(productos.len()).unwrap_or(u32::MAX),
+                u32::try_from(total_usuarios).unwrap_or(u32::MAX),
+                u32::try_from(total_productos).unwrap_or(u32::MAX),
                 u32::try_from(ordenes.len()).unwrap_or(u32::MAX),
                 completadas,
             )
@@ -637,11 +730,18 @@ mod reportes {
         fn _listar_categorias(&self) -> Vec<String> {
             let marketplace = self.marketplace();
             let productos = marketplace.listar_todos_productos();
+            Self::_procesar_listar_categorias(&productos)
+        }
+
+        /// Procesa productos para extraer categorías únicas.
+        ///
+        /// Función pura que puede ser testeada sin dependencias externas.
+        fn _procesar_listar_categorias(productos: &[(u32, Producto)]) -> Vec<String> {
             let mut categorias: Vec<String> = Vec::new();
 
             for (_pid, producto) in productos {
                 if !categorias.iter().any(|c| c == &producto.categoria) {
-                    categorias.push(producto.categoria);
+                    categorias.push(producto.categoria.clone());
                 }
             }
 
@@ -652,7 +752,7 @@ mod reportes {
         ///
         /// Criterio: primero por promedio (mayor mejor), luego por cantidad de calificaciones.
         /// Complejidad: O(n log n) donde n = cantidad de usuarios.
-        fn _ordenar_por_reputacion(&self, usuarios: &mut [UsuarioConReputacion]) {
+        fn _ordenar_por_reputacion(usuarios: &mut [UsuarioConReputacion]) {
             usuarios.sort_by(|a, b| {
                 if b.promedio_x100 != a.promedio_x100 {
                     b.promedio_x100.cmp(&a.promedio_x100)

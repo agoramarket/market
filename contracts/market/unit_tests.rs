@@ -2201,4 +2201,314 @@ mod tests {
         // Los fondos deberían haberse eliminado (retorna 0)
         assert_eq!(mp.obtener_fondos_retenidos(oid), 0);
     }
+
+    /// Test: Intentar marcar enviado una orden cancelada falla con OrdenCancelada.
+    #[ink::test]
+    fn marcar_enviado_orden_cancelada_falla() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
+        let oid = mp.comprar(pid, 1).unwrap();
+
+        // Cancelar la orden
+        mp.solicitar_cancelacion(oid).unwrap();
+        set_next_caller(accounts.alice);
+        let _ = mp.aceptar_cancelacion(oid);
+
+        // Intentar marcar como enviado debe fallar
+        let resultado = mp.marcar_enviado(oid);
+        assert_eq!(resultado, Err(Error::OrdenCancelada));
+    }
+
+    /// Test: Intentar marcar recibido una orden cancelada falla con OrdenCancelada.
+    #[ink::test]
+    fn marcar_recibido_orden_cancelada_falla() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
+        let oid = mp.comprar(pid, 1).unwrap();
+
+        // El vendedor envía
+        set_next_caller(accounts.alice);
+        mp.marcar_enviado(oid).unwrap();
+
+        // Cancelar después de enviar
+        set_next_caller(accounts.bob);
+        mp.solicitar_cancelacion(oid).unwrap();
+        set_next_caller(accounts.alice);
+        let _ = mp.aceptar_cancelacion(oid);
+
+        // Intentar marcar como recibido debe fallar
+        set_next_caller(accounts.bob);
+        let resultado = mp.marcar_recibido(oid);
+        assert_eq!(resultado, Err(Error::OrdenCancelada));
+    }
+
+    /// Test: get_total_productos retorna el conteo correcto.
+    #[ink::test]
+    fn get_total_productos_retorna_conteo() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+
+        assert_eq!(mp.get_total_productos(), 0);
+
+        mp.publicar(
+            "P1".to_string(),
+            "Desc".to_string(),
+            100,
+            10,
+            "Cat".to_string(),
+        )
+        .unwrap();
+        assert_eq!(mp.get_total_productos(), 1);
+
+        mp.publicar(
+            "P2".to_string(),
+            "Desc".to_string(),
+            200,
+            5,
+            "Cat".to_string(),
+        )
+        .unwrap();
+        assert_eq!(mp.get_total_productos(), 2);
+    }
+
+    /// Test: get_total_ordenes retorna el conteo correcto.
+    #[ink::test]
+    fn get_total_ordenes_retorna_conteo() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+
+        assert_eq!(mp.get_total_ordenes(), 0);
+
+        set_value(100);
+        mp.comprar(pid, 1).unwrap();
+        assert_eq!(mp.get_total_ordenes(), 1);
+
+        set_value(200);
+        mp.comprar(pid, 2).unwrap();
+        assert_eq!(mp.get_total_ordenes(), 2);
+    }
+
+    /// Test: obtener_orden_publica retorna la orden correctamente.
+    #[ink::test]
+    fn obtener_orden_publica_retorna_orden() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
+        let oid = mp.comprar(pid, 1).unwrap();
+
+        let orden = mp.obtener_orden_publica(oid);
+        assert!(orden.is_some());
+        let orden = orden.unwrap();
+        assert_eq!(orden.comprador, accounts.bob);
+        assert_eq!(orden.vendedor, accounts.alice);
+        assert_eq!(orden.cantidad, 1);
+
+        // Orden inexistente
+        assert!(mp.obtener_orden_publica(999).is_none());
+    }
+
+    /// Test: listar_usuarios retorna los usuarios registrados.
+    #[ink::test]
+    fn listar_usuarios_retorna_usuarios() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        assert!(mp.listar_usuarios().is_empty());
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        assert_eq!(mp.listar_usuarios().len(), 1);
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        assert_eq!(mp.listar_usuarios().len(), 2);
+    }
+
+    /// Test: listar_todos_productos retorna todos los productos.
+    #[ink::test]
+    fn listar_todos_productos_retorna_productos() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+
+        assert!(mp.listar_todos_productos().is_empty());
+
+        let pid1 = mp
+            .publicar(
+                "Prod1".to_string(),
+                "Desc1".to_string(),
+                100,
+                10,
+                "Cat1".to_string(),
+            )
+            .unwrap();
+        let pid2 = mp
+            .publicar(
+                "Prod2".to_string(),
+                "Desc2".to_string(),
+                200,
+                5,
+                "Cat2".to_string(),
+            )
+            .unwrap();
+
+        let productos = mp.listar_todos_productos();
+        assert_eq!(productos.len(), 2);
+
+        let (id1, prod1) = &productos[0];
+        assert_eq!(*id1, pid1);
+        assert_eq!(prod1.nombre, "Prod1");
+
+        let (id2, prod2) = &productos[1];
+        assert_eq!(*id2, pid2);
+        assert_eq!(prod2.nombre, "Prod2");
+    }
+
+    /// Test: listar_todas_ordenes retorna todas las órdenes.
+    #[ink::test]
+    fn listar_todas_ordenes_retorna_ordenes() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                100,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+
+        assert!(mp.listar_todas_ordenes().is_empty());
+
+        set_value(100);
+        let oid1 = mp.comprar(pid, 1).unwrap();
+        set_value(200);
+        let oid2 = mp.comprar(pid, 2).unwrap();
+
+        let ordenes = mp.listar_todas_ordenes();
+        assert_eq!(ordenes.len(), 2);
+
+        let (id1, ord1) = &ordenes[0];
+        assert_eq!(*id1, oid1);
+        assert_eq!(ord1.cantidad, 1);
+
+        let (id2, ord2) = &ordenes[1];
+        assert_eq!(*id2, oid2);
+        assert_eq!(ord2.cantidad, 2);
+    }
+
+    /// Test: listar_todas_reputaciones retorna todas las reputaciones.
+    #[ink::test]
+    fn listar_todas_reputaciones_retorna_reputaciones() {
+        let accounts = get_accounts();
+        let mut mp = Marketplace::new();
+
+        assert!(mp.listar_todas_reputaciones().is_empty());
+
+        // Alice es vendedora, Bob es comprador
+        set_next_caller(accounts.alice);
+        mp.registrar(Rol::Vendedor).unwrap();
+        let pid = mp
+            .publicar(
+                "Test".to_string(),
+                "Desc".to_string(),
+                100,
+                10,
+                "Cat".to_string(),
+            )
+            .unwrap();
+
+        set_next_caller(accounts.bob);
+        mp.registrar(Rol::Comprador).unwrap();
+        set_value(100);
+        let oid = mp.comprar(pid, 1).unwrap();
+
+        // Completar la orden para poder calificar
+        set_next_caller(accounts.alice);
+        mp.marcar_enviado(oid).unwrap();
+        set_next_caller(accounts.bob);
+        let _ = mp.marcar_recibido(oid);
+
+        // Calificar para crear entradas de reputación
+        mp.calificar_vendedor(oid, 5).unwrap();
+        set_next_caller(accounts.alice);
+        mp.calificar_comprador(oid, 4).unwrap();
+
+        let reputaciones = mp.listar_todas_reputaciones();
+        assert_eq!(reputaciones.len(), 2);
+    }
 }
