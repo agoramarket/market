@@ -113,7 +113,10 @@ mod marketplace {
     }
 
     /// Representa la reputación de un usuario en el marketplace.
-    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+    ///
+    /// Los valores por defecto son `(0, 0)` para ambos roles, indicando
+    /// que el usuario aún no ha recibido calificaciones.
+    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Default)]
     #[cfg_attr(
         feature = "std",
         derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
@@ -312,6 +315,10 @@ mod marketplace {
 
         /// Obtiene todos los productos disponibles en el marketplace de una sola vez.
         ///
+        /// # Complejidad
+        ///
+        /// O(n) donde n es el número total de productos publicados.
+        ///
         /// # Retorno
         ///
         /// Un vector de tuplas, donde cada tupla contiene:
@@ -324,6 +331,10 @@ mod marketplace {
 
         /// Obtiene todas las órdenes registradas en el marketplace de una sola vez.
         ///
+        /// # Complejidad
+        ///
+        /// O(n) donde n es el número total de órdenes creadas.
+        ///
         /// # Retorno
         ///
         /// Un vector de tuplas, donde cada tupla contiene:
@@ -335,6 +346,10 @@ mod marketplace {
         }
 
         /// Obtiene las reputaciones de todos los usuarios registrados.
+        ///
+        /// # Complejidad
+        ///
+        /// O(n) donde n es el número de usuarios registrados.
         ///
         /// # Retorno
         ///
@@ -750,6 +765,12 @@ mod marketplace {
         }
 
         /// Lógica interna para listar todos los productos.
+        ///
+        /// Itera sobre todos los IDs de productos desde 1 hasta `next_prod_id`.
+        ///
+        /// # Complejidad
+        ///
+        /// O(n) donde n es el número total de productos publicados.
         fn _listar_todos_productos(&self) -> Vec<(u32, Producto)> {
             let mut lista = Vec::new();
             for i in 1..self.next_prod_id {
@@ -761,6 +782,12 @@ mod marketplace {
         }
 
         /// Lógica interna para listar todas las órdenes.
+        ///
+        /// Itera sobre todos los IDs de órdenes desde 1 hasta `next_order_id`.
+        ///
+        /// # Complejidad
+        ///
+        /// O(n) donde n es el número total de órdenes creadas.
         fn _listar_todas_ordenes(&self) -> Vec<(u32, Orden)> {
             let mut lista = Vec::new();
             for i in 1..self.next_order_id {
@@ -772,6 +799,12 @@ mod marketplace {
         }
 
         /// Lógica interna para listar todas las reputaciones.
+        ///
+        /// Itera sobre todos los usuarios registrados y obtiene su reputación.
+        ///
+        /// # Complejidad
+        ///
+        /// O(n) donde n es el número de usuarios registrados.
         fn _listar_todas_reputaciones(&self) -> Vec<(AccountId, ReputacionUsuario)> {
             let mut lista = Vec::new();
             for usuario in &self.usuarios_registrados {
@@ -783,6 +816,12 @@ mod marketplace {
         }
 
         /// Lógica interna para listar productos de un vendedor.
+        ///
+        /// Itera sobre todos los productos y filtra por vendedor.
+        ///
+        /// # Complejidad
+        ///
+        /// O(n) donde n es el número total de productos en el marketplace.
         fn _listar_productos_de_vendedor(&self, vendedor: AccountId) -> Vec<Producto> {
             let mut productos_vendedor = Vec::new();
 
@@ -798,6 +837,12 @@ mod marketplace {
         }
 
         /// Lógica interna para listar órdenes de un comprador.
+        ///
+        /// Itera sobre todas las órdenes y filtra por comprador.
+        ///
+        /// # Complejidad
+        ///
+        /// O(n) donde n es el número total de órdenes en el marketplace.
         fn _listar_ordenes_de_comprador(&self, comprador: AccountId) -> Vec<Orden> {
             let mut ordenes_comprador = Vec::new();
 
@@ -1180,13 +1225,7 @@ mod marketplace {
             calif.comprador_califico = true;
             self.calificaciones.insert(oid, &calif);
 
-            let mut rep = self
-                .reputaciones
-                .get(orden.vendedor)
-                .unwrap_or(ReputacionUsuario {
-                    como_comprador: (0, 0),
-                    como_vendedor: (0, 0),
-                });
+            let mut rep = self.reputaciones.get(orden.vendedor).unwrap_or_default();
 
             rep.como_vendedor.0 = rep
                 .como_vendedor
@@ -1240,13 +1279,7 @@ mod marketplace {
             calif.vendedor_califico = true;
             self.calificaciones.insert(oid, &calif);
 
-            let mut rep = self
-                .reputaciones
-                .get(orden.comprador)
-                .unwrap_or(ReputacionUsuario {
-                    como_comprador: (0, 0),
-                    como_vendedor: (0, 0),
-                });
+            let mut rep = self.reputaciones.get(orden.comprador).unwrap_or_default();
 
             rep.como_comprador.0 = rep
                 .como_comprador

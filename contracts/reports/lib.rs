@@ -339,6 +339,8 @@ mod reportes {
         }
 
         /// Lógica interna para productos más vendidos.
+        ///
+        /// Complejidad: O(o + p) donde o = cantidad de órdenes y p = cantidad de productos.
         fn _productos_mas_vendidos(&self, limite: u32) -> Vec<ProductoVendido> {
             let marketplace = self.marketplace();
             let ordenes = marketplace.listar_todas_ordenes();
@@ -377,6 +379,8 @@ mod reportes {
         }
 
         /// Lógica interna para estadísticas por categoría.
+        ///
+        /// Complejidad: O(p + o) donde p = cantidad de productos y o = cantidad de órdenes.
         #[allow(clippy::arithmetic_side_effects)]
         fn _estadisticas_por_categoria(&self) -> Vec<EstadisticasCategoria> {
             let marketplace = self.marketplace();
@@ -519,6 +523,8 @@ mod reportes {
         }
 
         /// Lógica interna para órdenes por usuario.
+        ///
+        /// Complejidad: O(o) donde o = cantidad de órdenes totales.
         fn _ordenes_por_usuario(&self, usuario: AccountId) -> OrdenesUsuario {
             let marketplace = self.marketplace();
             let ordenes = marketplace.listar_todas_ordenes();
@@ -554,6 +560,8 @@ mod reportes {
         }
 
         /// Lógica interna para resumen de órdenes de todos los usuarios.
+        ///
+        /// Complejidad: O(u * o) donde u = cantidad de usuarios y o = cantidad de órdenes.
         fn _resumen_ordenes_todos_usuarios(&self) -> Vec<OrdenesUsuario> {
             let marketplace = self.marketplace();
             let usuarios = marketplace.listar_usuarios();
@@ -599,6 +607,9 @@ mod reportes {
         }
 
         /// Lógica interna para resumen general.
+        ///
+        /// Retorna: (total_usuarios, total_productos, total_ordenes, ordenes_completadas).
+        /// Complejidad: O(o) donde o = cantidad de órdenes.
         fn _resumen_general(&self) -> (u32, u32, u32, u32) {
             let marketplace = self.marketplace();
             let usuarios = marketplace.listar_usuarios();
@@ -620,7 +631,9 @@ mod reportes {
             )
         }
 
-        /// Lógica interna para listar categorías.
+        /// Lógica interna para listar categorías únicas.
+        ///
+        /// Complejidad: O(p * c) donde p = cantidad de productos y c = categorías únicas.
         fn _listar_categorias(&self) -> Vec<String> {
             let marketplace = self.marketplace();
             let productos = marketplace.listar_todos_productos();
@@ -636,6 +649,9 @@ mod reportes {
         }
 
         /// Ordena usuarios por reputación descendente.
+        ///
+        /// Criterio: primero por promedio (mayor mejor), luego por cantidad de calificaciones.
+        /// Complejidad: O(n log n) donde n = cantidad de usuarios.
         fn _ordenar_por_reputacion(&self, usuarios: &mut [UsuarioConReputacion]) {
             usuarios.sort_by(|a, b| {
                 if b.promedio_x100 != a.promedio_x100 {
