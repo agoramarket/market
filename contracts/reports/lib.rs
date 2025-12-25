@@ -301,7 +301,7 @@ mod reportes {
                 .collect();
 
             self._ordenar_por_reputacion(&mut resultado);
-            resultado.truncate((limite as usize).min(resultado.len()));
+            resultado.truncate(limite as usize);
             resultado
         }
 
@@ -334,7 +334,7 @@ mod reportes {
                 .collect();
 
             self._ordenar_por_reputacion(&mut resultado);
-            resultado.truncate((limite as usize).min(resultado.len()));
+            resultado.truncate(limite as usize);
             resultado
         }
 
