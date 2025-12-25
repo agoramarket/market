@@ -187,10 +187,4 @@ cargo test -p reports
 
 ---
 
-## � Licencia
-
-Este proyecto está bajo la licencia **GPL v3**. Ver [LICENSE](LICENSE) para más detalles.
-
----
-
 **Desarrollado por The Ágora Developers – 2025** 🚀
