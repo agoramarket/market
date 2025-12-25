@@ -108,8 +108,6 @@ mod marketplace {
         derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
     )]
     pub struct CancelacionPendiente {
-        /// El ID de la orden que se desea cancelar.
-        pub oid: u32,
         /// La cuenta del participante que solicita la cancelación.
         pub solicitante: AccountId,
     }
@@ -1003,7 +1001,6 @@ mod marketplace {
             self.cancelaciones_pendientes.insert(
                 oid,
                 &CancelacionPendiente {
-                    oid,
                     solicitante: caller,
                 },
             );
