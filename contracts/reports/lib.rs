@@ -557,15 +557,41 @@ mod reportes {
         fn _resumen_ordenes_todos_usuarios(&self) -> Vec<OrdenesUsuario> {
             let marketplace = self.marketplace();
             let usuarios = marketplace.listar_usuarios();
+            let ordenes = marketplace.listar_todas_ordenes();
+
             let mut resultado: Vec<OrdenesUsuario> = Vec::new();
 
             for usuario in usuarios {
-                let ordenes = self._ordenes_por_usuario(usuario);
+                let mut info = OrdenesUsuario {
+                    usuario,
+                    ordenes_como_comprador: 0,
+                    ordenes_como_vendedor: 0,
+                    completadas_como_comprador: 0,
+                    completadas_como_vendedor: 0,
+                };
+
+                for (_oid, orden) in &ordenes {
+                    if orden.comprador == usuario {
+                        info.ordenes_como_comprador = info.ordenes_como_comprador.saturating_add(1);
+                        if orden.estado == Estado::Recibido {
+                            info.completadas_como_comprador =
+                                info.completadas_como_comprador.saturating_add(1);
+                        }
+                    }
+                    if orden.vendedor == usuario {
+                        info.ordenes_como_vendedor = info.ordenes_como_vendedor.saturating_add(1);
+                        if orden.estado == Estado::Recibido {
+                            info.completadas_como_vendedor =
+                                info.completadas_como_vendedor.saturating_add(1);
+                        }
+                    }
+                }
+
                 let tiene_ordenes =
-                    ordenes.ordenes_como_comprador > 0 || ordenes.ordenes_como_vendedor > 0;
+                    info.ordenes_como_comprador > 0 || info.ordenes_como_vendedor > 0;
 
                 if tiene_ordenes {
-                    resultado.push(ordenes);
+                    resultado.push(info);
                 }
             }
 
