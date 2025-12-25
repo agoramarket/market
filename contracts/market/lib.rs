@@ -947,12 +947,10 @@ mod marketplace {
 
         /// Lógica interna para marcar una orden como recibida y liberar fondos al vendedor.
         ///
-        /// ## Flujo de Liberación de Fondos
+        /// ## Flujo de liberación de fondos
         /// 1. Valida permisos y estado de la orden
-        /// 2. Obtiene los fondos retenidos en escrow
-        /// 3. Transfiere los fondos al vendedor
-        /// 4. Actualiza el estado de la orden a Recibido
-        /// 5. Limpia los fondos retenidos y cancelaciones pendientes
+        /// 2.Actualiza el estado de la orden y limpia datos internos
+        /// 3.Transfiere los fondos al vendedor
         fn _marcar_recibido(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let mut orden = self.ordenes.get(oid).ok_or(Error::OrdenInexistente)?;
             self.ensure(orden.comprador == caller, Error::SinPermiso)?;
@@ -963,16 +961,19 @@ mod marketplace {
             self.ensure(orden.estado == Estado::Enviado, Error::EstadoInvalido)?;
 
             let fondos = self.fondos_retenidos.get(oid).unwrap_or(0);
-            if fondos > 0 {
-                self.env()
-                    .transfer(orden.vendedor, fondos)
-                    .map_err(|_| Error::TransferenciaFallida)?;
-                self.fondos_retenidos.remove(oid);
-            }
+            self.fondos_retenidos.remove(oid);
 
             orden.estado = Estado::Recibido;
             self.ordenes.insert(oid, &orden);
             self.cancelaciones_pendientes.remove(oid);
+
+            let vendedor = orden.vendedor;
+
+            if fondos > 0 {
+                self.env()
+                    .transfer(vendedor, fondos)
+                    .map_err(|_| Error::TransferenciaFallida)?;
+            }
 
             Ok(())
         }
@@ -1009,13 +1010,12 @@ mod marketplace {
 
         /// Lógica interna para aceptar la cancelación de una orden y devolver fondos.
         ///
-        /// ## Flujo de Devolución de Fondos
-        /// 1. Valida permisos y estado de la cancelación
-        /// 2. Obtiene los fondos retenidos en escrow
-        /// 3. Transfiere los fondos de vuelta al comprador
-        /// 4. Restaura el stock del producto
-        /// 5. Actualiza el estado de la orden a Cancelada
-        /// 6. Limpia los fondos retenidos y la solicitud de cancelación
+        /// ## Flujo de Devolución de Fondos (patrón checks-effects-interactions)
+        /// 1. **Checks**: Valida permisos y estado de la cancelación
+        /// 2. **Effects**: Restaura stock, actualiza estado de la orden, limpia datos
+        /// 3. **Interactions**: Transfiere los fondos de vuelta al comprador
+        ///
+        /// Este orden previene posibles vulnerabilidades de reentrancy.
         fn _aceptar_cancelacion(&mut self, caller: AccountId, oid: u32) -> Result<(), Error> {
             let cancelacion = self
                 .cancelaciones_pendientes
@@ -1041,14 +1041,9 @@ mod marketplace {
                 Error::SinPermiso,
             )?;
 
-            // Devolver fondos al comprador
+            // Effects: actualizar estado interno primero
             let fondos = self.fondos_retenidos.get(oid).unwrap_or(0);
-            if fondos > 0 {
-                self.env()
-                    .transfer(orden.comprador, fondos)
-                    .map_err(|_| Error::TransferenciaFallida)?;
-                self.fondos_retenidos.remove(oid);
-            }
+            self.fondos_retenidos.remove(oid);
 
             let mut producto = self
                 .productos
@@ -1060,6 +1055,8 @@ mod marketplace {
                 .ok_or(Error::StockOverflow)?;
             self.productos.insert(orden.id_prod, &producto);
 
+            let comprador = orden.comprador;
+
             self.ordenes.insert(
                 oid,
                 &Orden {
@@ -1069,6 +1066,12 @@ mod marketplace {
             );
 
             self.cancelaciones_pendientes.remove(oid);
+
+            if fondos > 0 {
+                self.env()
+                    .transfer(comprador, fondos)
+                    .map_err(|_| Error::TransferenciaFallida)?;
+            }
 
             Ok(())
         }
