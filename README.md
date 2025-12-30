@@ -185,8 +185,10 @@ cargo test -p reports
 ## 🌐 Contrato en Testnet
 
 * Red: **Astar Shibuya Testnet**
-* Dirección del contrato:
-  `XDHDTFonKyVQnTZaB9TpMcfTKWkuuL9TaDR4mBz5ebVWnYV`
+* Dirección del contrato `marketplace`:
+  `YAPT8srYinobuA9eWAYjxq5pFc3ssg48aXFCET7fekuvrFJ`
+* Dirección del contrato `reports`:
+  `aEyfR487BTrjnCFBLMmMNwc1XuXfgiWnMCPQgrUcRgWQ1Ve`
 
 ### Cómo Probar
 
